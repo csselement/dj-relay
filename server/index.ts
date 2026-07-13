@@ -26,7 +26,7 @@ if (process.env.NODE_ENV === "development") {
 }
 
 const server = app.listen(config.port, "0.0.0.0", () => {
-  console.log(JSON.stringify({ level: "info", message: "DJ Relay listening", port: config.port }));
+  console.log(JSON.stringify({ level: "info", message: "Discus listening", port: config.port }));
 });
 
 function shutdown(): void {

@@ -152,7 +152,7 @@ export function ListenerPage() {
           <Button className="primary-button muted-button" disabled>Waiting for broadcast</Button>
         ) : null}
         {connected && !waitingForDj && <Tag className="connection-state is-good" color="success">Connection stable</Tag>}
-        {connection !== "idle" && connection !== "closed" && <audio ref={audioRef} className={`listener-player ${hasAudio ? "" : "is-pending"}`} controls aria-label="DJ Relay live audio" />}
+        {connection !== "idle" && connection !== "closed" && <audio ref={audioRef} className={`listener-player ${hasAudio ? "" : "is-pending"}`} controls aria-label="Discus live audio" />}
         {message && !waitingForDj && <InlineNotice tone={connection === "connected" ? "neutral" : "danger"}>{message}</InlineNotice>}
         <p className="listener-count compact"><span className="listener-icon" aria-hidden="true" />{data.session.listenerCount} listening</p>
         {shareUrl && (

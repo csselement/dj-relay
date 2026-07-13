@@ -18,7 +18,7 @@ function testApp() {
   return { app: createApp({ config, store }), store, config };
 }
 
-describe("DJ Relay API", () => {
+describe("Discus API", () => {
   const stores: SessionStore[] = [];
   afterEach(() => stores.splice(0).forEach((store) => store.close()));
 

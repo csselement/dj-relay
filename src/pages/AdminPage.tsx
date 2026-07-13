@@ -133,7 +133,7 @@ export function AdminPage() {
   }
 
   return (
-    <AppShell footer="DJ Relay owner console">
+    <AppShell footer="Discus owner console">
       <div className="admin-view">
         <div className="admin-heading">
           <div><h1>Sessions</h1><p className="intro-copy">Create one private relay at a time.</p></div>

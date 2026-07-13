@@ -11,6 +11,8 @@
   --border: #343430;
   --field-border: #4a4943;
   --header-bg: rgb(23 23 21 / 92%);
+  --header-pattern-overlay: rgb(23 23 21 / 58%);
+  --content-background-overlay: rgb(23 23 21 / 86%);
   --selection-bg: #344133;
   --focus-ring: #81977e;
   --field-hover: #62615a;
@@ -54,6 +56,8 @@
   --border: #eaeaea;
   --field-border: #d8d7d1;
   --header-bg: rgb(247 246 242 / 92%);
+  --header-pattern-overlay: rgb(247 246 242 / 88%);
+  --content-background-overlay: rgb(247 246 242 / 82%);
   --selection-bg: #dfe8dc;
   --focus-ring: #bfd0bc;
   --field-hover: #bab9b3;
@@ -120,7 +124,12 @@ a { color: inherit; }
 .app-header {
   padding: 0 clamp(20px, 4vw, 48px);
   border-bottom: 1px solid var(--border);
-  background: var(--header-bg);
+  background-color: var(--header-bg);
+  background-image:
+    linear-gradient(var(--header-pattern-overlay), var(--header-pattern-overlay)),
+    url("./assets/header-voronoi.jpg");
+  background-position: center 50%;
+  background-size: cover;
 }
 
 .app-header-inner {
@@ -136,15 +145,20 @@ a { color: inherit; }
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
+  gap: 5px;
   color: var(--ink);
   font-size: 22px;
   font-weight: 760;
   letter-spacing: -.035em;
   text-decoration: none;
 }
-.brand-mark { flex: 0 0 auto; color: var(--muted-strong); }
-
+.brand-mark { flex: 0 0 auto; color: inherit; }
+.brand-disc {
+  width: 20px;
+  height: 20px;
+  background: currentColor;
+  mask: url("./assets/discus-ring.png") center / contain no-repeat;
+}
 .theme-toggle {
   width: 40px;
   min-width: 40px;
@@ -165,6 +179,12 @@ a { color: inherit; }
   display: grid;
   place-items: center;
   padding: clamp(40px, 8vh, 84px) clamp(20px, 4vw, 48px);
+  background-color: var(--canvas);
+  background-image:
+    linear-gradient(var(--content-background-overlay), var(--content-background-overlay)),
+    url("./assets/main-discobolus-background.jpg");
+  background-position: center 38%;
+  background-size: cover;
 }
 
 .app-footer {

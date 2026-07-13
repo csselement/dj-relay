@@ -7,7 +7,9 @@ test("theme defaults to dark and persists a light-mode choice", async ({ page })
   await page.goto("/");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await expect(page.getByRole("button", { name: "Use light mode" })).toBeVisible();
-  await expect(page.getByLabel("DJ Relay home").locator("svg")).toBeVisible();
+  await expect(page.getByLabel("Discus home")).toBeVisible();
+  await expect(page.getByLabel("Discus home").locator("svg")).toHaveCount(0);
+  await expect(page.getByLabel("Discus home").locator(".brand-disc")).toBeVisible();
   await expect(page.getByRole("button", { name: "Use light mode" }).locator("svg")).toBeVisible();
 
   await page.getByRole("button", { name: "Use light mode" }).click();
@@ -21,7 +23,7 @@ test("theme defaults to dark and persists a light-mode choice", async ({ page })
 test("owner creates a session and DJ reaches the ready screen", async ({ page, context, browser }) => {
   const sessionName = `Saturday Night Relay ${Date.now()}`;
   await page.goto("/admin");
-  await expect(page).toHaveTitle("DJ Relay");
+  await expect(page).toHaveTitle("Discus");
   await page.getByLabel("Owner password").fill(ownerPassword);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("heading", { name: "Sessions" })).toBeVisible();
