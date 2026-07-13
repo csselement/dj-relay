@@ -1,0 +1,29 @@
+{
+	auto_https disable_redirects
+}
+
+{$DJ_RELAY_DOMAIN:localhost} {
+	tls {
+		issuer {$CADDY_TLS_ISSUER:acme}
+	}
+
+	encode zstd gzip
+
+	@media path /media/*
+	handle @media {
+		uri strip_prefix /media
+		reverse_proxy mediamtx:8889
+	}
+
+	handle {
+		reverse_proxy app:3000
+	}
+
+	header {
+		Referrer-Policy "no-referrer"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Permissions-Policy "camera=(), microphone=(self)"
+		-Server
+	}
+}

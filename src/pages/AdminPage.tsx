@@ -1,0 +1,190 @@
+import { useCallback, useEffect, useState } from "react";
+import { Button, Card, Empty, Input, Select, Tag } from "antd";
+import { api } from "../api";
+import { AppShell } from "../components/AppShell";
+import { InlineNotice } from "../components/InlineNotice";
+import type { RelaySession } from "../types";
+
+type CreatedLinks = { session: RelaySession; djUrl: string; listenerUrl: string };
+
+export function sessionAudienceLabel(session: RelaySession): string {
+  if (session.state !== "ended" && session.state !== "expired") return `${session.listenerCount} listening`;
+  if (!session.listenerHistoryAvailable) return "listener history unavailable";
+  return session.uniqueListenerCount === 1 ? "1 person listened" : `${session.uniqueListenerCount} people listened`;
+}
+
+export function AdminPage() {
+  const [authenticated, setAuthenticated] = useState<boolean | null>(null);
+  const [password, setPassword] = useState("");
+  const [name, setName] = useState("Saturday Night Relay");
+  const [expiresInHours, setExpiresInHours] = useState(8);
+  const [sessions, setSessions] = useState<RelaySession[]>([]);
+  const [created, setCreated] = useState<CreatedLinks | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState<"login" | "create" | null>(null);
+  const [endingId, setEndingId] = useState("");
+
+  const loadSessions = useCallback(async () => {
+    try {
+      const identity = await api<{ authenticated: boolean }>("/api/admin/me");
+      if (!identity.authenticated) {
+        setAuthenticated(false);
+        return;
+      }
+      const result = await api<{ sessions: RelaySession[] }>("/api/admin/sessions");
+      setSessions(result.sessions);
+      setAuthenticated(true);
+    } catch {
+      setAuthenticated(false);
+    }
+  }, []);
+
+  useEffect(() => { void loadSessions(); }, [loadSessions]);
+
+  async function login(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy("login");
+    try {
+      await api("/api/admin/login", { method: "POST", body: JSON.stringify({ password }) });
+      setPassword("");
+      setError("");
+      await loadSessions();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to sign in");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function createSession(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy("create");
+    try {
+      const result = await api<CreatedLinks>("/api/admin/sessions", {
+        method: "POST",
+        body: JSON.stringify({ name, expiresInHours }),
+      });
+      setCreated(result);
+      setError("");
+      await loadSessions();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to create session");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function endSession(id: string) {
+    setEndingId(id);
+    try {
+      await api(`/api/admin/sessions/${id}/end`, { method: "POST" });
+      await loadSessions();
+      setError("");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to end session");
+    } finally {
+      setEndingId("");
+    }
+  }
+
+  if (authenticated === null) return <AppShell footer=""><div className="message-view"><h1>Owner console</h1><p className="intro-copy">Loading…</p></div></AppShell>;
+  if (!authenticated) {
+    return (
+      <AppShell footer="Owner access only">
+        <form className="admin-login" onSubmit={login}>
+          <h1>Owner console</h1>
+          <p className="intro-copy">Create private DJ and listener links.</p>
+          <input type="text" name="username" value="owner" autoComplete="username" hidden readOnly />
+          <label className="field-label" htmlFor="owner-password">Owner password</label>
+          <Input.Password id="owner-password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required />
+          <Button className="primary-button success-button" type="primary" htmlType="submit" loading={busy === "login"}>{busy === "login" ? "Signing in…" : "Sign in"}</Button>
+          {error && <InlineNotice tone="danger">{error}</InlineNotice>}
+        </form>
+      </AppShell>
+    );
+  }
+
+  return (
+    <AppShell footer="DJ Relay owner console">
+      <div className="admin-view">
+        <div className="admin-heading">
+          <div><h1>Sessions</h1><p className="intro-copy">Create one private relay at a time.</p></div>
+          <Tag className="health-dot" color="success">System ready</Tag>
+        </div>
+        <Card className="create-session-card">
+          <form className="create-session" onSubmit={createSession}>
+            <div className="form-field session-name-field">
+              <label className="field-label" htmlFor="session-name">Session name</label>
+              <Input id="session-name" value={name} onChange={(event) => setName(event.target.value)} minLength={2} maxLength={80} required />
+            </div>
+            <div className="form-field session-expiry-field">
+              <label className="field-label" htmlFor="session-expiry">Expires after</label>
+              <Select
+                id="session-expiry"
+                value={expiresInHours}
+                onChange={(value) => setExpiresInHours(value)}
+                options={[4, 8, 12, 24].map((hours) => ({ value: hours, label: `${hours} hours` }))}
+              />
+            </div>
+            <Button className="primary-button success-button" type="primary" htmlType="submit" loading={busy === "create"}>{busy === "create" ? "Creating…" : "Create session"}</Button>
+          </form>
+        </Card>
+        {created && (
+          <section aria-live="polite">
+            <Card className="link-panel">
+              <h2>{created.session.name}</h2>
+              <CopyLink label="DJ invite" value={created.djUrl} />
+              <CopyLink label="Listener invite" value={created.listenerUrl} />
+              <p>These private links are shown once. Copy them now.</p>
+            </Card>
+          </section>
+        )}
+        {error && <InlineNotice tone="danger">{error}</InlineNotice>}
+        <div className="session-list">
+          {sessions.length === 0 && (
+            <Empty
+              className="empty-state"
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              description={<span><strong>No sessions yet</strong>Create one above to generate private DJ and listener links.</span>}
+            />
+          )}
+          {sessions.map((session) => {
+            const active = session.state !== "ended" && session.state !== "expired";
+            const sessionDetails = <><h3>{session.name}</h3><p>{session.state} · {sessionAudienceLabel(session)} · expires {new Date(session.expiresAt).toLocaleString()}</p></>;
+            return (
+              <article className={`session-row ${active ? "is-active" : ""}`} key={session.id}>
+                {active ? (
+                  <a
+                    className="session-row-link"
+                    href={`/api/admin/sessions/${session.id}/listen`}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label={`Open ${session.name} listener page`}
+                  >
+                    {sessionDetails}
+                  </a>
+                ) : <div className="session-row-copy">{sessionDetails}</div>}
+                {active && <Button className="small-danger-button" danger loading={endingId === session.id} onClick={() => void endSession(session.id)}>{endingId === session.id ? "Ending…" : "End"}</Button>}
+              </article>
+            );
+          })}
+        </div>
+      </div>
+    </AppShell>
+  );
+}
+
+function CopyLink({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false);
+  async function copy() {
+    await navigator.clipboard.writeText(value);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1500);
+  }
+  return (
+    <div className="copy-row">
+      <div><strong>{label}</strong><code>{value}</code></div>
+      <Button className="copy-button" onClick={() => void copy()}>{copied ? "Copied" : "Copy"}</Button>
+    </div>
+  );
+}

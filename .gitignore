@@ -1,0 +1,15 @@
+node_modules/
+dist/
+data/
+.env
+coverage/
+test-results/
+playwright-report/
+.playwright-cli/
+output/
+backups/
+*.log
+*.sqlite
+*.sqlite-*
+caddy-root.crt
+.DS_Store

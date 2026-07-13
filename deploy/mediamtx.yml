@@ -1,0 +1,40 @@
+logLevel: info
+logDestinations: [stdout]
+logStructured: true
+
+authMethod: http
+authHTTPAddress: http://app:3000/internal/mediamtx-auth?secret=change-me
+authHTTPExclude:
+  - action: api
+  - action: metrics
+  - action: pprof
+
+api: true
+apiAddress: :9997
+metrics: false
+pprof: false
+playback: false
+moq: false
+
+rtsp: false
+rtmp: false
+hls: false
+srt: false
+webrtc: true
+webrtcAddress: :8889
+webrtcEncryption: false
+webrtcAllowOrigins: ["*"]
+webrtcTrustedProxies: [172.16.0.0/12]
+webrtcLocalUDPAddress: :8189
+webrtcLocalTCPAddress: :8189
+webrtcIPsFromInterfaces: true
+webrtcAdditionalHosts: []
+
+pathDefaults:
+  source: publisher
+  maxReaders: 20
+  overridePublisher: false
+  record: false
+
+paths:
+  all_others:

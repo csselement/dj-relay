@@ -1,0 +1,68 @@
+services:
+  app:
+    build:
+      context: .
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_PATH: /app/data/dj-relay.sqlite
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
+      TOKEN_SECRET: ${TOKEN_SECRET:?Set TOKEN_SECRET in .env}
+      MEDIAMTX_AUTH_SECRET: ${MEDIAMTX_AUTH_SECRET:?Set MEDIAMTX_AUTH_SECRET in .env}
+      PUBLIC_MEDIA_BASE: /media
+      MEDIAMTX_API_URL: http://mediamtx:9997
+      MAX_LISTENERS: 20
+    volumes:
+      - relay-data:/app/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)})"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  mediamtx:
+    image: bluenviron/mediamtx:1.19.2
+    restart: unless-stopped
+    environment:
+      MTX_AUTHHTTPADDRESS: http://app:3000/internal/mediamtx-auth?secret=${MEDIAMTX_AUTH_SECRET:?Set MEDIAMTX_AUTH_SECRET in .env}
+      MTX_WEBRTCADDITIONALHOSTS: ${DJ_RELAY_DOMAIN:?Set DJ_RELAY_DOMAIN in .env}
+    volumes:
+      - ./deploy/mediamtx.yml:/mediamtx.yml:ro
+    ports:
+      - "8189:8189/udp"
+      - "8189:8189/tcp"
+    expose:
+      - "8889"
+      - "9997"
+    depends_on:
+      app:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2.10.2-alpine
+    restart: unless-stopped
+    environment:
+      DJ_RELAY_DOMAIN: ${DJ_RELAY_DOMAIN:?Set DJ_RELAY_DOMAIN in .env}
+      CADDY_TLS_ISSUER: ${CADDY_TLS_ISSUER:-acme}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    ports:
+      - "443:443"
+      - "443:443/udp"
+    depends_on:
+      app:
+        condition: service_healthy
+      mediamtx:
+        condition: service_started
+
+volumes:
+  relay-data:
+  caddy-data:
+  caddy-config:

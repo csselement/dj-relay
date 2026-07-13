@@ -1,0 +1,13 @@
+node_modules
+dist
+data
+.git
+.env
+coverage
+test-results
+playwright-report
+.playwright-cli
+output
+backups
+*.log
+caddy-root.crt
