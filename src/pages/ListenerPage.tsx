@@ -115,10 +115,20 @@ export function ListenerPage() {
   const deadline = data.session.disconnectDeadline ? new Date(data.session.disconnectDeadline).getTime() : countdownNow + 60_000;
   const remainingSeconds = Math.max(0, Math.ceil((deadline - countdownNow) / 1000));
   const statusLabel = waitingForDj ? "DJ disconnected" : live ? "Live now" : "Waiting for DJ";
+  const waitingToStart = !live && !waitingForDj;
   return (
     <AppShell footer="Private session · Share this page only with invited listeners.">
       <div className="listener-view">
-        <Tag className={`listener-live-label ${live ? "is-live" : ""} ${waitingForDj ? "is-interrupted" : ""}`} color={live ? "error" : "default"}>{statusLabel}</Tag>
+        <Tag className={`listener-live-label ${live ? "is-live" : ""} ${waitingForDj ? "is-interrupted" : ""}`} color={live ? "error" : "default"}>
+          {statusLabel}
+          {waitingToStart && (
+            <span className="waiting-activity" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </span>
+          )}
+        </Tag>
         <h1>{data.session.name}</h1>
         <p className="intro-copy">
           {waitingForDj ? "The DJ connection was lost. This page will reconnect automatically." : connected ? "You’re listening live." : live ? "The DJ is live. Press listen when you’re ready." : "This page will update when the broadcast starts."}
