@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, Card, Empty, Input, Select, Tag } from "antd";
 import { api } from "../api";
 import { AppShell } from "../components/AppShell";
@@ -6,6 +6,12 @@ import { InlineNotice } from "../components/InlineNotice";
 import type { RelaySession } from "../types";
 
 type CreatedLinks = { session: RelaySession; djUrl: string; listenerUrl: string };
+type SessionListResponse = {
+  sessions: RelaySession[];
+  history: { loaded: number; total: number; hasMore: boolean };
+};
+
+const HISTORY_BATCH_SIZE = 6;
 
 export function sessionAudienceLabel(session: RelaySession): string {
   if (session.state !== "ended" && session.state !== "expired") return `${session.listenerCount} listening`;
@@ -23,6 +29,10 @@ export function AdminPage() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState<"login" | "create" | null>(null);
   const [endingId, setEndingId] = useState("");
+  const [historyLimit, setHistoryLimit] = useState(HISTORY_BATCH_SIZE);
+  const [historyLoaded, setHistoryLoaded] = useState(0);
+  const [historyHasMore, setHistoryHasMore] = useState(false);
+  const historyTriggerRef = useRef<HTMLDivElement>(null);
 
   const loadSessions = useCallback(async () => {
     try {
@@ -31,19 +41,33 @@ export function AdminPage() {
         setAuthenticated(false);
         return;
       }
-      const result = await api<{ sessions: RelaySession[] }>("/api/admin/sessions");
+      const result = await api<SessionListResponse>(`/api/admin/sessions?historyLimit=${historyLimit}`);
       setSessions(result.sessions);
+      setHistoryLoaded(result.history.loaded);
+      setHistoryHasMore(result.history.hasMore);
       setAuthenticated(true);
     } catch {
       setAuthenticated(false);
     }
-  }, []);
+  }, [historyLimit]);
 
   useEffect(() => {
     void loadSessions();
     const timer = window.setInterval(() => void loadSessions(), 3000);
     return () => window.clearInterval(timer);
   }, [loadSessions]);
+
+  useEffect(() => {
+    const trigger = historyTriggerRef.current;
+    const requestPending = historyLoaded < historyLimit;
+    if (!trigger || !historyHasMore || requestPending || typeof IntersectionObserver === "undefined") return;
+
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) setHistoryLimit((current) => current + HISTORY_BATCH_SIZE);
+    }, { rootMargin: "240px 0px" });
+    observer.observe(trigger);
+    return () => observer.disconnect();
+  }, [historyHasMore, historyLimit, historyLoaded]);
 
   async function login(event: React.FormEvent) {
     event.preventDefault();
@@ -156,7 +180,7 @@ export function AdminPage() {
             const active = session.state !== "ended" && session.state !== "expired";
             const sessionDetails = <><h3>{session.name}</h3><p>{session.state} · {sessionAudienceLabel(session)} · expires {new Date(session.expiresAt).toLocaleString()}</p></>;
             return (
-              <article className={`session-row ${active ? "is-active" : ""}`} key={session.id}>
+              <article className={`session-row ${active ? "is-active" : "is-history"}`} key={session.id}>
                 {active ? (
                   <a
                     className="session-row-link"
@@ -172,6 +196,17 @@ export function AdminPage() {
               </article>
             );
           })}
+          {historyHasMore && (
+            <div className="history-lazy-loader" ref={historyTriggerRef}>
+              <Button
+                type="text"
+                disabled={historyLoaded < historyLimit}
+                onClick={() => setHistoryLimit((current) => current + HISTORY_BATCH_SIZE)}
+              >
+                {historyLoaded < historyLimit ? "Loading older sessions…" : "Load older sessions"}
+              </Button>
+            </div>
+          )}
         </div>
       </div>
     </AppShell>

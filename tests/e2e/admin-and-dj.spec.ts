@@ -133,6 +133,53 @@ test("ended sessions retain the number of individual listener browsers", async (
   await expect(row).toContainText("ended · 2 people listened");
 });
 
+test("inactive session history loads in batches near the viewport", async ({ page }) => {
+  await page.setViewportSize({ width: 1100, height: 500 });
+  await page.goto("/admin");
+  await page.getByLabel("Owner password").fill(ownerPassword);
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page.getByRole("heading", { name: "Sessions" })).toBeVisible();
+
+  const baseSession = {
+    mediaPath: "session-path",
+    createdAt: "2026-07-13T17:00:00.000Z",
+    expiresAt: "2026-07-14T01:00:00.000Z",
+    startedAt: "2026-07-13T17:05:00.000Z",
+    endedAt: "2026-07-13T18:00:00.000Z",
+    endedReason: "dj",
+    disconnectDeadline: null,
+    listenerCount: 0,
+    uniqueListenerCount: 0,
+    listenerHistoryAvailable: true,
+  };
+  const active = { ...baseSession, id: "active", name: "Current session", state: "ready", endedAt: null, endedReason: null };
+  const history = Array.from({ length: 14 }, (_, index) => ({
+    ...baseSession,
+    id: `history-${index}`,
+    name: `Archived session ${index + 1}`,
+    state: "ended",
+  }));
+
+  await page.route("**/api/admin/sessions?*", async (route) => {
+    const limit = Number(new URL(route.request().url()).searchParams.get("historyLimit") ?? 6);
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        sessions: [active, ...history.slice(0, limit)],
+        history: { loaded: Math.min(limit, history.length), total: history.length, hasMore: limit < history.length },
+      }),
+    });
+  });
+  await page.reload();
+
+  await expect(page.locator(".session-row")).toHaveCount(7);
+  await page.locator(".history-lazy-loader").scrollIntoViewIfNeeded();
+  await expect(page.locator(".session-row")).toHaveCount(13);
+  await page.locator(".history-lazy-loader").scrollIntoViewIfNeeded();
+  await expect(page.locator(".session-row")).toHaveCount(15);
+  await expect(page.locator(".history-lazy-loader")).toHaveCount(0);
+});
+
 test("invalid invite fails clearly", async ({ page }) => {
   await page.goto("/s/not-a-real-invite");
   await expect(page.getByRole("heading", { name: "Invite unavailable" })).toBeVisible();

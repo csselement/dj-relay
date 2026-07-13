@@ -141,14 +141,25 @@ export function createApp({ config, store }: AppDependencies) {
     res.json({ authenticated: Boolean(adminPayload(req, config)) });
   });
 
-  app.get("/api/admin/sessions", requireAdmin(config), async (_req, res) => {
+  app.get("/api/admin/sessions", requireAdmin(config), async (req, res) => {
     store.endStaleSessions(config.djDisconnectGraceMs);
-    const sessions = await Promise.all(store.list().map(async (session) => {
+    const requestedHistoryLimit = Number(req.query.historyLimit ?? 20);
+    const historyLimit = Number.isSafeInteger(requestedHistoryLimit) && requestedHistoryLimit > 0 ?
+      requestedHistoryLimit : 20;
+    const page = store.listAdminPage(historyLimit);
+    const sessions = await Promise.all([...page.active, ...page.history].map(async (session) => {
       const listenerCount = session.state === "ended" || session.state === "expired" ? 0 :
         await getListenerCount(config, session.mediaPath);
       return publicSession(session, listenerCount, store.uniqueListenerCount(session.id), config.djDisconnectGraceMs);
     }));
-    res.json({ sessions });
+    res.json({
+      sessions,
+      history: {
+        loaded: page.history.length,
+        total: page.historyTotal,
+        hasMore: page.history.length < page.historyTotal,
+      },
+    });
   });
 
   app.post("/api/admin/sessions", requireAdmin(config), (req, res) => {

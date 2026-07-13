@@ -44,6 +44,12 @@ export type CreatedSession = RelaySession & {
   listenerToken: string;
 };
 
+export type AdminSessionPage = {
+  active: RelaySession[];
+  history: RelaySession[];
+  historyTotal: number;
+};
+
 function mapSession(row: SessionRow): RelaySession {
   const expired = row.state !== "ended" && new Date(row.expires_at).getTime() <= Date.now();
   return {
@@ -180,6 +186,31 @@ export class SessionStore {
   list(): RelaySession[] {
     const rows = this.db.prepare("SELECT * FROM sessions ORDER BY created_at DESC").all() as SessionRow[];
     return rows.map(mapSession);
+  }
+
+  listAdminPage(historyLimit: number, now = new Date()): AdminSessionPage {
+    const nowIso = now.toISOString();
+    const activeRows = this.db.prepare(`
+      SELECT * FROM sessions
+      WHERE state != 'ended' AND expires_at > ?
+      ORDER BY created_at DESC
+    `).all(nowIso) as SessionRow[];
+    const historyRows = this.db.prepare(`
+      SELECT * FROM sessions
+      WHERE state = 'ended' OR expires_at <= ?
+      ORDER BY created_at DESC
+      LIMIT ?
+    `).all(nowIso, historyLimit) as SessionRow[];
+    const count = this.db.prepare(`
+      SELECT COUNT(*) AS count FROM sessions
+      WHERE state = 'ended' OR expires_at <= ?
+    `).get(nowIso) as { count: number };
+
+    return {
+      active: activeRows.map(mapSession),
+      history: historyRows.map(mapSession),
+      historyTotal: count.count,
+    };
   }
 
   get(id: string): RelaySession | null {

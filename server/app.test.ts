@@ -148,6 +148,28 @@ describe("DJ Relay API", () => {
     });
   });
 
+  it("returns active sessions with a bounded page of inactive history", async () => {
+    const { app, store } = testApp(); stores.push(store);
+    const owner = request.agent(app);
+    await owner.post("/api/admin/login").send({ password: "owner-test-password" });
+    store.create("Active session", 4);
+    for (let index = 0; index < 9; index += 1) {
+      const inactive = store.create(`Ended session ${index + 1}`, 4);
+      store.setState(inactive.id, "ended");
+    }
+
+    await owner.get("/api/admin/sessions?historyLimit=3").expect(200).expect(({ body }) => {
+      expect(body.sessions.filter((session: { state: string }) => session.state === "ready")).toHaveLength(1);
+      expect(body.sessions.filter((session: { state: string }) => session.state === "ended")).toHaveLength(3);
+      expect(body.history).toEqual({ loaded: 3, total: 9, hasMore: true });
+    });
+
+    await owner.get("/api/admin/sessions?historyLimit=12").expect(200).expect(({ body }) => {
+      expect(body.sessions).toHaveLength(10);
+      expect(body.history).toEqual({ loaded: 9, total: 9, hasMore: false });
+    });
+  });
+
   it("lets a listener create and share a session-scoped listener invite", async () => {
     const { app, store } = testApp(); stores.push(store);
     const owner = request.agent(app);

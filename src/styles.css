@@ -584,6 +584,10 @@ h2 { letter-spacing: -.025em; }
   padding: 20px 0;
   border-bottom: 1px solid var(--border);
 }
+.session-row.is-history {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 86px;
+}
 .session-row-link {
   min-width: 0;
   border-radius: 5px;
@@ -596,6 +600,19 @@ h2 { letter-spacing: -.025em; }
 .session-row p { margin: 0; color: var(--muted); font-size: 13px; }
 .ant-btn.small-danger-button { border-color: var(--danger-border); background: var(--red-soft); color: var(--red); box-shadow: none; }
 .ant-btn.small-danger-button:hover { border-color: var(--danger-border); background: var(--danger-hover); color: var(--red); }
+.history-lazy-loader {
+  min-height: 64px;
+  display: grid;
+  place-items: center;
+  border-bottom: 1px solid var(--border);
+}
+.history-lazy-loader .ant-btn {
+  min-height: 40px;
+  color: var(--muted-strong);
+  font-size: 13px;
+  font-weight: 680;
+}
+.history-lazy-loader .ant-btn:hover { background: var(--surface-subtle); color: var(--ink); }
 .empty-state {
   padding: 32px 0 28px;
   color: var(--muted);
