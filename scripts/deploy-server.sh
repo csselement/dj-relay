@@ -2,14 +2,14 @@
 set -eu
 
 if [ "$#" -ne 1 ]; then
-  echo "Usage: $0 user@orange-pi-host"
+  echo "Usage: $0 user@server.example.com"
   exit 1
 fi
 
 target="$1"
-release_dir="${REMOTE_DIR:-/mnt/ssd/dj-relay}"
+release_dir="${REMOTE_DIR:-/opt/discus}"
 
-ssh "$target" "test -d /mnt/ssd && sudo mkdir -p '$release_dir' && sudo chown \"\$USER\" '$release_dir'"
+ssh "$target" "sudo mkdir -p '$release_dir' && sudo chown \"\$USER\" '$release_dir'"
 rsync -az --delete \
   --exclude .git --exclude node_modules --exclude dist --exclude data --exclude backups --exclude .env --exclude caddy-root.crt \
   --exclude .playwright-cli --exclude output --exclude test-results --exclude playwright-report \

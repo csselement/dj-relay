@@ -35,20 +35,33 @@ npm run test:e2e
 
 ## Deployment
 
-Copy the environment template, replace every example secret, and set the public hostname:
+Requirements:
+
+- A Linux server with Docker Engine and the Docker Compose plugin
+- A public DNS name pointed at the server
+- TCP/UDP 443 and TCP/UDP 8189 allowed through the server firewall or router
+
+Copy the environment template, replace every example secret, and set your public hostname:
 
 ```sh
 cp .env.example .env
+# Edit .env and set DJ_RELAY_DOMAIN=discus.example.com
 docker compose config --quiet
 docker compose up -d --build
 ```
 
-Expose TCP 443 and UDP/TCP 8189 to the host. Keep the application and MediaMTX administration ports private.
+Keep the application and MediaMTX administration ports private. Caddy obtains the HTTPS certificate and proxies the public web and media routes.
 
-For repeat Orange Pi deployments:
+For repeat deployments from another computer, use any SSH-accessible Linux host:
 
 ```sh
-./scripts/deploy-pi.sh user@orange-pi-host
+./scripts/deploy-server.sh deploy@server.example.com
 ```
 
-The default deployment path is `/mnt/ssd/dj-relay`. Runtime data, secrets, backups, and generated test artifacts are excluded from Git.
+The default deployment path is `/opt/discus`. Override it when needed:
+
+```sh
+REMOTE_DIR=/srv/discus ./scripts/deploy-server.sh deploy@server.example.com
+```
+
+The remote `.env`, Docker volumes, runtime data, secrets, backups, and generated test artifacts are preserved or excluded from Git.
