@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { randomToken, tokenHash } from "./security.js";
 
 export type SessionState = "ready" | "live" | "interrupted" | "ended" | "expired";
+export type SessionEndReason = "dj" | "owner" | "timeout";
 
 export type RelaySession = {
   id: string;
@@ -15,6 +16,9 @@ export type RelaySession = {
   expiresAt: string;
   startedAt: string | null;
   endedAt: string | null;
+  endedReason: SessionEndReason | null;
+  djLastSeenAt: string | null;
+  interruptedAt: string | null;
   listenerHistoryAvailable: boolean;
 };
 
@@ -27,7 +31,10 @@ type SessionRow = {
   expires_at: string;
   started_at: string | null;
   ended_at: string | null;
+  ended_reason: SessionEndReason | null;
   listener_tracking_started_at: string | null;
+  dj_last_seen_at: string | null;
+  interrupted_at: string | null;
   dj_token_hash: string;
   listener_token_hash: string;
 };
@@ -48,6 +55,9 @@ function mapSession(row: SessionRow): RelaySession {
     expiresAt: row.expires_at,
     startedAt: row.started_at,
     endedAt: row.ended_at,
+    endedReason: row.ended_reason,
+    djLastSeenAt: row.dj_last_seen_at,
+    interruptedAt: row.interrupted_at,
     listenerHistoryAvailable: Boolean(row.listener_tracking_started_at),
   };
 }
@@ -71,7 +81,10 @@ export class SessionStore {
         expires_at TEXT NOT NULL,
         started_at TEXT,
         ended_at TEXT,
-        listener_tracking_started_at TEXT
+        ended_reason TEXT CHECK (ended_reason IN ('dj', 'owner', 'timeout')),
+        listener_tracking_started_at TEXT,
+        dj_last_seen_at TEXT,
+        interrupted_at TEXT
       ) STRICT;
       CREATE INDEX IF NOT EXISTS sessions_created_at ON sessions(created_at DESC);
       CREATE TABLE IF NOT EXISTS session_listeners (
@@ -89,6 +102,25 @@ export class SessionStore {
         UPDATE sessions SET listener_tracking_started_at = ?
         WHERE state = 'ready' AND started_at IS NULL AND expires_at > ?
       `).run(trackingStartedAt, trackingStartedAt);
+    }
+    if (!sessionColumns.some((column) => column.name === "dj_last_seen_at")) {
+      this.db.exec("ALTER TABLE sessions ADD COLUMN dj_last_seen_at TEXT;");
+      const migrationTime = new Date().toISOString();
+      this.db.prepare(`
+        UPDATE sessions SET dj_last_seen_at = ?
+        WHERE state IN ('live', 'interrupted')
+      `).run(migrationTime);
+    }
+    if (!sessionColumns.some((column) => column.name === "interrupted_at")) {
+      this.db.exec("ALTER TABLE sessions ADD COLUMN interrupted_at TEXT;");
+      const migrationTime = new Date().toISOString();
+      this.db.prepare(`
+        UPDATE sessions SET interrupted_at = ?
+        WHERE state = 'interrupted'
+      `).run(migrationTime);
+    }
+    if (!sessionColumns.some((column) => column.name === "ended_reason")) {
+      this.db.exec("ALTER TABLE sessions ADD COLUMN ended_reason TEXT;");
     }
     this.db.exec(`
       UPDATE sessions SET listener_tracking_started_at = NULL
@@ -112,8 +144,9 @@ export class SessionStore {
     this.db.prepare(`
       INSERT INTO sessions (
         id, name, media_path, dj_token_hash, listener_token_hash,
-        state, created_at, expires_at, started_at, ended_at, listener_tracking_started_at
-      ) VALUES (?, ?, ?, ?, ?, 'ready', ?, ?, NULL, NULL, ?)
+        state, created_at, expires_at, started_at, ended_at, ended_reason,
+        listener_tracking_started_at, dj_last_seen_at, interrupted_at
+      ) VALUES (?, ?, ?, ?, ?, 'ready', ?, ?, NULL, NULL, NULL, ?, ?, NULL)
     `).run(
       id,
       name,
@@ -122,6 +155,7 @@ export class SessionStore {
       tokenHash(listenerToken),
       createdAt.toISOString(),
       expiresAt.toISOString(),
+      createdAt.toISOString(),
       createdAt.toISOString(),
     );
 
@@ -134,6 +168,9 @@ export class SessionStore {
       expiresAt: expiresAt.toISOString(),
       startedAt: null,
       endedAt: null,
+      endedReason: null,
+      djLastSeenAt: createdAt.toISOString(),
+      interruptedAt: null,
       listenerHistoryAvailable: true,
       djToken,
       listenerToken,
@@ -169,6 +206,26 @@ export class SessionStore {
     return row.count;
   }
 
+  touchDj(sessionId: string, seenAt = new Date()): void {
+    this.db.prepare(`
+      UPDATE sessions SET dj_last_seen_at = ?
+      WHERE id = ? AND state IN ('ready', 'live', 'interrupted')
+    `).run(seenAt.toISOString(), sessionId);
+  }
+
+  endStaleSessions(graceMs: number, now = new Date()): number {
+    const cutoff = new Date(now.getTime() - graceMs).toISOString();
+    const result = this.db.prepare(`
+      UPDATE sessions SET state = 'ended', ended_at = ?, ended_reason = 'timeout'
+      WHERE (
+        state = 'live' AND (dj_last_seen_at IS NULL OR dj_last_seen_at <= ?)
+      ) OR (
+        state = 'interrupted' AND (COALESCE(interrupted_at, dj_last_seen_at) IS NULL OR COALESCE(interrupted_at, dj_last_seen_at) <= ?)
+      )
+    `).run(now.toISOString(), cutoff, cutoff);
+    return Number(result.changes);
+  }
+
   exchangeInvite(token: string): { session: RelaySession; role: "dj" | "listener" } | null {
     const hash = tokenHash(token);
     const row = this.db.prepare(`
@@ -182,18 +239,24 @@ export class SessionStore {
     return { session, role: row.dj_token_hash === hash ? "dj" : "listener" };
   }
 
-  setState(id: string, state: Exclude<SessionState, "expired">): RelaySession | null {
+  setState(id: string, state: Exclude<SessionState, "expired">, endedReason: SessionEndReason = "dj"): RelaySession | null {
     const current = this.get(id);
     if (!current || current.state === "ended" || current.state === "expired") return current;
     const now = new Date().toISOString();
     if (state === "live") {
       this.db.prepare(`
-        UPDATE sessions SET state = 'live', started_at = COALESCE(started_at, ?) WHERE id = ?
-      `).run(now, id);
+        UPDATE sessions
+        SET state = 'live', started_at = COALESCE(started_at, ?), dj_last_seen_at = ?, interrupted_at = NULL
+        WHERE id = ?
+      `).run(now, now, id);
     } else if (state === "ended") {
-      this.db.prepare("UPDATE sessions SET state = 'ended', ended_at = ? WHERE id = ?").run(now, id);
+      this.db.prepare("UPDATE sessions SET state = 'ended', ended_at = ?, ended_reason = ? WHERE id = ?").run(now, endedReason, id);
     } else {
-      this.db.prepare("UPDATE sessions SET state = ? WHERE id = ?").run(state, id);
+      this.db.prepare(`
+        UPDATE sessions
+        SET state = 'interrupted', dj_last_seen_at = ?, interrupted_at = COALESCE(interrupted_at, ?)
+        WHERE id = ?
+      `).run(now, now, id);
     }
     return this.get(id);
   }

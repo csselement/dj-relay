@@ -1,7 +1,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 export type TokenPayload = {
-  kind: "admin" | "invite" | "media";
+  kind: "admin" | "invite" | "media" | "share";
   role?: "dj" | "listener";
   sessionId?: string;
   listenerId?: string;

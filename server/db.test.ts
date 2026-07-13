@@ -5,7 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { SessionStore } from "./db.js";
 
-describe("SessionStore audience tracking migration", () => {
+describe("SessionStore migrations and lifecycle", () => {
   it("preserves legacy sessions and tracks new listeners once per browser identity", () => {
     const directory = mkdtempSync(join(tmpdir(), "dj-relay-db-"));
     const path = join(directory, "relay.sqlite");
@@ -54,6 +54,41 @@ describe("SessionStore audience tracking migration", () => {
     } finally {
       store.close();
       rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps an active session during the 60-second DJ disconnect grace period", () => {
+    const store = new SessionStore(":memory:");
+    try {
+      const session = store.create("Grace period", 4);
+      store.setState(session.id, "live");
+      const disconnectedAt = new Date();
+      store.touchDj(session.id, disconnectedAt);
+
+      expect(store.endStaleSessions(60_000, new Date(disconnectedAt.getTime() + 59_999))).toBe(0);
+      expect(store.get(session.id)?.state).toBe("live");
+
+      expect(store.endStaleSessions(60_000, new Date(disconnectedAt.getTime() + 60_000))).toBe(1);
+      expect(store.get(session.id)).toMatchObject({ state: "ended", endedReason: "timeout" });
+    } finally {
+      store.close();
+    }
+  });
+
+  it("does not let heartbeats extend an interrupted stream countdown", () => {
+    const store = new SessionStore(":memory:");
+    try {
+      const session = store.create("Interrupted grace period", 4);
+      store.setState(session.id, "live");
+      const interrupted = store.setState(session.id, "interrupted");
+      const interruptedAt = new Date(interrupted?.interruptedAt ?? 0);
+      store.touchDj(session.id, new Date(interruptedAt.getTime() + 45_000));
+
+      expect(store.endStaleSessions(60_000, new Date(interruptedAt.getTime() + 59_999))).toBe(0);
+      expect(store.endStaleSessions(60_000, new Date(interruptedAt.getTime() + 60_000))).toBe(1);
+      expect(store.get(session.id)).toMatchObject({ state: "ended", endedReason: "timeout" });
+    } finally {
+      store.close();
     }
   });
 });

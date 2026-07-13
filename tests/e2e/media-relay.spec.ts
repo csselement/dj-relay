@@ -46,8 +46,6 @@ test("relays browser audio from a DJ to a listener and ends cleanly", async ({ p
   await expect(dj.getByText("1 listening")).toBeVisible({ timeout: 10_000 });
 
   await dj.getByRole("button", { name: "End broadcast" }).click();
-  await expect(dj.getByRole("button", { name: "Click again to end" })).toBeVisible();
-  await dj.getByRole("button", { name: "Click again to end" }).click();
   await expect(listener.getByRole("heading", { name: "Broadcast ended" })).toBeVisible({ timeout: 10_000 });
   await listenerContext.close();
 });

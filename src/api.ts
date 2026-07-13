@@ -22,6 +22,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 export const sessionApi = {
   get: () => api<SessionResponse>("/api/session"),
   mediaToken: () => api<{ token: string; path: string; endpoint: string }>("/api/session/media-token", { method: "POST" }),
+  shareLink: () => api<{ url: string }>("/api/session/share-link", { method: "POST" }),
   setState: (state: "live" | "interrupted" | "ended") =>
     api<{ session: RelaySession }>("/api/session/state", { method: "POST", body: JSON.stringify({ state }) }),
 };

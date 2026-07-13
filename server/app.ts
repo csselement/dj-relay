@@ -74,8 +74,25 @@ function requireInvite(config: AppConfig, store: SessionStore) {
   };
 }
 
-function publicSession(session: RelaySession, listenerCount: number, uniqueListenerCount: number) {
-  return { ...session, listenerCount, uniqueListenerCount };
+function publicSession(session: RelaySession, listenerCount: number, uniqueListenerCount: number, disconnectGraceMs: number) {
+  const disconnectStartedAt = session.state === "interrupted" ? session.interruptedAt :
+    session.state === "live" ? session.djLastSeenAt : null;
+  return {
+    id: session.id,
+    name: session.name,
+    mediaPath: session.mediaPath,
+    state: session.state,
+    createdAt: session.createdAt,
+    expiresAt: session.expiresAt,
+    startedAt: session.startedAt,
+    endedAt: session.endedAt,
+    endedReason: session.endedReason,
+    listenerHistoryAvailable: session.listenerHistoryAvailable,
+    listenerCount,
+    uniqueListenerCount,
+    disconnectDeadline: disconnectStartedAt ?
+      new Date(new Date(disconnectStartedAt).getTime() + disconnectGraceMs).toISOString() : null,
+  };
 }
 
 export function createApp({ config, store }: AppDependencies) {
@@ -125,10 +142,11 @@ export function createApp({ config, store }: AppDependencies) {
   });
 
   app.get("/api/admin/sessions", requireAdmin(config), async (_req, res) => {
+    store.endStaleSessions(config.djDisconnectGraceMs);
     const sessions = await Promise.all(store.list().map(async (session) => {
       const listenerCount = session.state === "ended" || session.state === "expired" ? 0 :
         await getListenerCount(config, session.mediaPath);
-      return publicSession(session, listenerCount, store.uniqueListenerCount(session.id));
+      return publicSession(session, listenerCount, store.uniqueListenerCount(session.id), config.djDisconnectGraceMs);
     }));
     res.json({ sessions });
   });
@@ -144,16 +162,16 @@ export function createApp({ config, store }: AppDependencies) {
     const session = store.create(name, expiresInHours);
     const origin = `${req.protocol}://${req.get("host")}`;
     res.status(201).json({
-      session: publicSession(session, 0, 0),
+      session: publicSession(session, 0, 0, config.djDisconnectGraceMs),
       djUrl: `${origin}/s/${session.djToken}`,
       listenerUrl: `${origin}/s/${session.listenerToken}`,
     });
   });
 
   app.post("/api/admin/sessions/:id/end", requireAdmin(config), (req, res) => {
-    const session = store.setState(String(req.params.id), "ended");
+    const session = store.setState(String(req.params.id), "ended", "owner");
     if (!session) return sendError(res, 404, "Session not found");
-    res.json({ session: publicSession(session, 0, store.uniqueListenerCount(session.id)) });
+    res.json({ session: publicSession(session, 0, store.uniqueListenerCount(session.id), config.djDisconnectGraceMs) });
   });
 
   app.get("/api/admin/sessions/:id/listen", requireAdmin(config), (req, res) => {
@@ -177,7 +195,16 @@ export function createApp({ config, store }: AppDependencies) {
 
   app.post("/api/invite/exchange", (req, res) => {
     const token = typeof req.body?.token === "string" ? req.body.token : "";
-    const result = store.exchangeInvite(token);
+    let result = store.exchangeInvite(token);
+    if (!result) {
+      const sharedInvite = verifyToken(token, config.tokenSecret);
+      if (sharedInvite?.kind === "share" && sharedInvite.role === "listener" && sharedInvite.sessionId) {
+        const session = store.get(sharedInvite.sessionId);
+        if (session && session.state !== "ended" && session.state !== "expired") {
+          result = { session, role: "listener" };
+        }
+      }
+    }
     if (!result) return sendError(res, 404, "This invite is invalid, expired, or ended");
 
     const exp = Math.floor(new Date(result.session.expiresAt).getTime() / 1000);
@@ -195,20 +222,26 @@ export function createApp({ config, store }: AppDependencies) {
     res.cookie(INVITE_COOKIE, cookie, cookieOptions(config, Math.max(0, exp * 1000 - Date.now())));
     res.json({
       role: result.role,
-      session: publicSession(result.session, 0, store.uniqueListenerCount(result.session.id)),
+      session: publicSession(result.session, 0, store.uniqueListenerCount(result.session.id), config.djDisconnectGraceMs),
       destination: result.role === "dj" ? "/broadcast" : "/listen",
     });
   });
 
   app.get("/api/session", requireInvite(config, store), async (_req, res) => {
-    const session = res.locals.session as RelaySession;
     const invite = res.locals.invite as TokenPayload;
+    store.endStaleSessions(config.djDisconnectGraceMs);
+    let session = store.get((res.locals.session as RelaySession).id) as RelaySession;
+    if (invite.role === "dj" && session.state !== "ended" && session.state !== "expired") {
+      store.touchDj(session.id);
+      session = store.get(session.id) as RelaySession;
+    }
     const listenerCount = await getListenerCount(config, session.mediaPath);
-    res.json({ role: invite.role, session: publicSession(session, listenerCount, store.uniqueListenerCount(session.id)) });
+    res.json({ role: invite.role, session: publicSession(session, listenerCount, store.uniqueListenerCount(session.id), config.djDisconnectGraceMs) });
   });
 
   app.post("/api/session/media-token", requireInvite(config, store), (req, res) => {
-    const session = res.locals.session as RelaySession;
+    store.endStaleSessions(config.djDisconnectGraceMs);
+    const session = store.get((res.locals.session as RelaySession).id) as RelaySession;
     const invite = res.locals.invite as TokenPayload;
     if (session.state === "ended") return sendError(res, 410, "This broadcast has ended");
     const sessionExp = Math.floor(new Date(session.expiresAt).getTime() / 1000);
@@ -233,6 +266,25 @@ export function createApp({ config, store }: AppDependencies) {
     });
   });
 
+  app.post("/api/session/share-link", requireInvite(config, store), (req, res) => {
+    const invite = res.locals.invite as TokenPayload;
+    if (invite.role !== "listener") return sendError(res, 403, "Only listeners can create a listener invite");
+    store.endStaleSessions(config.djDisconnectGraceMs);
+    const session = store.get((res.locals.session as RelaySession).id);
+    if (!session || session.state === "ended" || session.state === "expired") {
+      return sendError(res, 410, "This broadcast has ended");
+    }
+
+    const token = signToken({
+      kind: "share",
+      role: "listener",
+      sessionId: session.id,
+      exp: Math.floor(new Date(session.expiresAt).getTime() / 1000),
+    }, config.tokenSecret);
+    const origin = `${req.protocol}://${req.get("host")}`;
+    res.json({ url: `${origin}/s/${token}` });
+  });
+
   app.post("/api/session/state", requireInvite(config, store), (req, res) => {
     const session = res.locals.session as RelaySession;
     const invite = res.locals.invite as TokenPayload;
@@ -241,8 +293,9 @@ export function createApp({ config, store }: AppDependencies) {
     if (requested !== "live" && requested !== "interrupted" && requested !== "ended") {
       return sendError(res, 400, "Invalid broadcast state");
     }
+    if (requested !== "ended") store.endStaleSessions(config.djDisconnectGraceMs);
     const updated = store.setState(session.id, requested);
-    res.json({ session: updated ? publicSession(updated, 0, store.uniqueListenerCount(updated.id)) : null });
+    res.json({ session: updated ? publicSession(updated, 0, store.uniqueListenerCount(updated.id), config.djDisconnectGraceMs) : null });
   });
 
   app.post("/internal/mediamtx-auth", (req, res) => {
@@ -255,10 +308,12 @@ export function createApp({ config, store }: AppDependencies) {
     const payload = verifyToken(token, config.tokenSecret);
     if (!payload || payload.kind !== "media" || payload.path !== path || !payload.sessionId) return res.sendStatus(403);
 
+    store.endStaleSessions(config.djDisconnectGraceMs);
     const session = store.get(payload.sessionId);
     if (!session || session.state === "ended" || session.state === "expired") return res.sendStatus(403);
     const allowed = (payload.role === "dj" && action === "publish") ||
       (payload.role === "listener" && action === "read");
+    if (allowed && payload.role === "dj") store.touchDj(session.id);
     if (allowed && payload.role === "listener" && payload.listenerId) {
       store.recordListener(session.id, payload.listenerId);
     }

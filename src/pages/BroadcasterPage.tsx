@@ -26,7 +26,7 @@ export function BroadcasterPage() {
   const [connectionMessage, setConnectionMessage] = useState("");
   const [startedAt, setStartedAt] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
-  const [endArmed, setEndArmed] = useState(false);
+  const [ending, setEnding] = useState(false);
   const [testState, setTestState] = useState<"idle" | "recording" | "ready">("idle");
   const [testUrl, setTestUrl] = useState("");
   const connected = connection === "connected";
@@ -99,16 +99,19 @@ export function BroadcasterPage() {
   }
 
   async function endBroadcast() {
-    if (!endArmed) {
-      setEndArmed(true);
-      window.setTimeout(() => setEndArmed(false), 3500);
-      return;
+    if (ending) return;
+    setEnding(true);
+    setConnectionMessage("");
+    try {
+      await sessionApi.setState("ended");
+      publisherRef.current?.close();
+      publisherRef.current = null;
+      setConnection("closed");
+      await refresh();
+    } catch (caught) {
+      setConnectionMessage(caught instanceof Error ? caught.message : "Could not end the broadcast");
+      setEnding(false);
     }
-    publisherRef.current?.close();
-    publisherRef.current = null;
-    setConnection("closed");
-    await sessionApi.setState("ended");
-    await refresh();
   }
 
   function testAudio() {
@@ -152,8 +155,8 @@ export function BroadcasterPage() {
           <Tag className={`connection-state ${connected ? "is-good" : "is-warn"}`} color={connected ? "success" : "warning"}>{stateText}</Tag>
           {connectionMessage && connection === "reconnecting" && <p className="connection-detail">{connectionMessage}</p>}
           <p className="listener-count"><span className="listener-icon" aria-hidden="true" />{data.session.listenerCount} listening</p>
-          <Button className={`primary-button danger-button ${endArmed ? "is-armed" : ""}`} type="primary" danger onClick={() => void endBroadcast()}>
-            {endArmed ? "Click again to end" : "End broadcast"}
+          <Button className="primary-button danger-button" type="primary" danger loading={ending} onClick={() => void endBroadcast()}>
+            {ending ? "Ending broadcast…" : "End broadcast"}
           </Button>
         </div>
       </AppShell>
@@ -170,6 +173,7 @@ export function BroadcasterPage() {
             {audio.permission === "requesting" ? "Waiting for permission…" : "Allow audio access"}
           </Button>
           {audio.error && <InlineNotice tone="danger">{audio.error}</InlineNotice>}
+          <DjQuickStart />
         </div>
       </AppShell>
     );
@@ -199,8 +203,36 @@ export function BroadcasterPage() {
         {testState === "ready" && <audio className="test-player" src={testUrl} controls autoPlay aria-label="Audio input test playback" />}
         {connectionMessage && <InlineNotice tone="danger">{connectionMessage}</InlineNotice>}
         {audio.error && <InlineNotice tone="danger">{audio.error}</InlineNotice>}
+        <DjQuickStart />
       </div>
     </AppShell>
+  );
+}
+
+function DjQuickStart() {
+  return (
+    <aside className="dj-help" aria-labelledby="dj-help-title">
+      <h2 id="dj-help-title">First time? Start here.</h2>
+      <ol className="dj-help-steps">
+        <li><strong>Connect</strong> your mixer or audio interface to this computer.</li>
+        <li><strong>Allow</strong> audio access, select the input, then play a track and check for signal.</li>
+        <li><strong>Go live</strong> by clicking Start broadcast. Keep this tab open.</li>
+      </ol>
+      <details className="dj-help-routing">
+        <summary>Playing music only from this Mac?</summary>
+        <div className="dj-help-routing-body">
+          <p>Use this only when your mixer or interface is not available as an input.</p>
+          <ol>
+            <li>Install <a href="https://existential.audio/blackhole/download/" target="_blank" rel="noreferrer">BlackHole 2ch</a>, then reopen your audio apps.</li>
+            <li>Open <strong>Audio MIDI Setup</strong> → Window → Show Audio Devices.</li>
+            <li>Click <strong>+</strong> → Create Multi-Output Device. Check BlackHole 2ch and your headphones or interface.</li>
+            <li>Make your headphones or interface the Primary Device. Turn on Drift Correction for BlackHole.</li>
+            <li>In your DJ app, choose the Multi-Output Device. Here, choose BlackHole 2ch as the Audio input.</li>
+          </ol>
+          <a className="dj-help-link" href="https://support.apple.com/guide/audio-midi-setup/play-audio-through-multiple-devices-at-once-ams7c093f372/mac" target="_blank" rel="noreferrer">Apple’s Multi-Output Device guide</a>
+        </div>
+      </details>
+    </aside>
   );
 }
 

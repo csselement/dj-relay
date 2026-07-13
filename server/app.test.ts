@@ -118,4 +118,58 @@ describe("DJ Relay API", () => {
     await request(app).post(`/internal/mediamtx-auth?secret=${config.mediaAuthSecret}`)
       .send({ token: media.body.token, action: "read", path: media.body.path }).expect(403);
   });
+
+  it("lets the DJ end an active session immediately", async () => {
+    const { app, store } = testApp(); stores.push(store);
+    const owner = request.agent(app);
+    await owner.post("/api/admin/login").send({ password: "owner-test-password" });
+    const created = await owner.post("/api/admin/sessions").send({ name: "DJ ending", expiresInHours: 4 });
+    const djToken = created.body.djUrl.split("/").at(-1);
+    const dj = request.agent(app);
+    await dj.post("/api/invite/exchange").send({ token: djToken }).expect(200);
+
+    await dj.post("/api/session/state").send({ state: "live" }).expect(200);
+    expect(store.get(created.body.session.id)?.state).toBe("live");
+
+    await dj.post("/api/session/state").send({ state: "ended" }).expect(200);
+    expect(store.get(created.body.session.id)).toMatchObject({ state: "ended", endedReason: "dj" });
+  });
+
+  it("ends a stale active session when the owner list refreshes", async () => {
+    const { app, store, config } = testApp(); stores.push(store);
+    const owner = request.agent(app);
+    await owner.post("/api/admin/login").send({ password: "owner-test-password" });
+    const created = await owner.post("/api/admin/sessions").send({ name: "Disconnected DJ", expiresInHours: 4 });
+    store.setState(created.body.session.id, "live");
+    store.touchDj(created.body.session.id, new Date(Date.now() - config.djDisconnectGraceMs - 1));
+
+    await owner.get("/api/admin/sessions").expect(200).expect(({ body }) => {
+      expect(body.sessions[0]).toMatchObject({ id: created.body.session.id, state: "ended" });
+    });
+  });
+
+  it("lets a listener create and share a session-scoped listener invite", async () => {
+    const { app, store } = testApp(); stores.push(store);
+    const owner = request.agent(app);
+    await owner.post("/api/admin/login").send({ password: "owner-test-password" });
+    const created = await owner.post("/api/admin/sessions").send({ name: "Shared relay", expiresInHours: 4 });
+    const listenerToken = created.body.listenerUrl.split("/").at(-1);
+    const djToken = created.body.djUrl.split("/").at(-1);
+
+    const listener = request.agent(app);
+    await listener.post("/api/invite/exchange").send({ token: listenerToken }).expect(200);
+    const shared = await listener.post("/api/session/share-link").expect(200);
+    expect(shared.body.url).toMatch(/\/s\/[A-Za-z0-9_.-]+$/);
+
+    const invitedListener = request.agent(app);
+    const sharedToken = shared.body.url.split("/").at(-1);
+    await invitedListener.post("/api/invite/exchange").send({ token: sharedToken }).expect(200).expect(({ body }) => {
+      expect(body).toMatchObject({ role: "listener", destination: "/listen" });
+      expect(body.session.id).toBe(created.body.session.id);
+    });
+
+    const dj = request.agent(app);
+    await dj.post("/api/invite/exchange").send({ token: djToken }).expect(200);
+    await dj.post("/api/session/share-link").expect(403);
+  });
 });

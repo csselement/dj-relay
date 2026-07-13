@@ -9,6 +9,8 @@ export type RelaySession = {
   expiresAt: string;
   startedAt: string | null;
   endedAt: string | null;
+  endedReason: "dj" | "owner" | "timeout" | null;
+  disconnectDeadline: string | null;
   listenerCount: number;
   uniqueListenerCount: number;
   listenerHistoryAvailable: boolean;

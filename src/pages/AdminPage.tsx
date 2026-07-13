@@ -39,7 +39,11 @@ export function AdminPage() {
     }
   }, []);
 
-  useEffect(() => { void loadSessions(); }, [loadSessions]);
+  useEffect(() => {
+    void loadSessions();
+    const timer = window.setInterval(() => void loadSessions(), 3000);
+    return () => window.clearInterval(timer);
+  }, [loadSessions]);
 
   async function login(event: React.FormEvent) {
     event.preventDefault();

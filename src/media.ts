@@ -84,6 +84,7 @@ class WebRtcHttpSession {
   private pc: RTCPeerConnection | null = null;
   private sessionUrl: string | null = null;
   private stopped = false;
+  private retrying = false;
   private retryTimer: number | null = null;
 
   constructor(
@@ -96,6 +97,7 @@ class WebRtcHttpSession {
 
   start(): void {
     this.stopped = false;
+    this.retrying = false;
     void this.connect();
   }
 
@@ -111,7 +113,7 @@ class WebRtcHttpSession {
 
   private async connect(): Promise<void> {
     if (this.stopped) return;
-    this.callbacks.onState(this.pc ? "reconnecting" : "connecting");
+    this.callbacks.onState(this.retrying ? "reconnecting" : "connecting");
     this.pc?.close();
 
     try {
@@ -120,7 +122,10 @@ class WebRtcHttpSession {
       this.pc = pc;
       pc.addEventListener("connectionstatechange", () => {
         if (this.stopped || pc !== this.pc) return;
-        if (pc.connectionState === "connected") this.callbacks.onState("connected");
+        if (pc.connectionState === "connected") {
+          this.retrying = false;
+          this.callbacks.onState("connected");
+        }
         if (pc.connectionState === "failed" || pc.connectionState === "closed") {
           this.scheduleRetry("Connection lost");
         }
@@ -171,6 +176,7 @@ class WebRtcHttpSession {
 
   private scheduleRetry(message: string): void {
     if (this.stopped || this.retryTimer) return;
+    this.retrying = true;
     this.pc?.close();
     this.pc = null;
     this.callbacks.onState("reconnecting", message);

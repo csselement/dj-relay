@@ -7,6 +7,7 @@ export type AppConfig = {
   publicMediaBase: string;
   mediaMtxApiUrl: string;
   maxListeners: number;
+  djDisconnectGraceMs: number;
   secureCookies: boolean;
 };
 
@@ -20,6 +21,7 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     publicMediaBase: process.env.PUBLIC_MEDIA_BASE ?? "http://localhost:8889",
     mediaMtxApiUrl: process.env.MEDIAMTX_API_URL ?? "http://localhost:9997",
     maxListeners: Number(process.env.MAX_LISTENERS ?? 20),
+    djDisconnectGraceMs: Number(process.env.DJ_DISCONNECT_GRACE_MS ?? 60_000),
     secureCookies: process.env.NODE_ENV === "production",
     ...overrides,
   };

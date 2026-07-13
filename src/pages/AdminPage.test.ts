@@ -11,6 +11,8 @@ const session: RelaySession = {
   expiresAt: "2026-07-14T01:00:00.000Z",
   startedAt: "2026-07-13T17:05:00.000Z",
   endedAt: null,
+  endedReason: null,
+  disconnectDeadline: "2026-07-13T17:06:00.000Z",
   listenerCount: 3,
   uniqueListenerCount: 5,
   listenerHistoryAvailable: true,
