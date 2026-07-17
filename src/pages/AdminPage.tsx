@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button, Card, Empty, Input, Tag } from "antd";
+import { Button, Card, Checkbox, Empty, Input, Tag } from "antd";
 import { api } from "../api";
 import { AnimatedText } from "../components/AnimatedText";
 import { AppShell } from "../components/AppShell";
@@ -48,6 +48,7 @@ export function AdminPage() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [password, setPassword] = useState("");
   const [name, setName] = useState(defaultSessionName);
+  const [recordingRequested, setRecordingRequested] = useState(false);
   const [sessions, setSessions] = useState<RelaySession[]>([]);
   const [created, setCreated] = useState<CreatedLinks | null>(null);
   const [error, setError] = useState("");
@@ -114,7 +115,7 @@ export function AdminPage() {
     try {
       const result = await api<CreatedLinks>("/api/admin/sessions", {
         method: "POST",
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, recordingRequested }),
       });
       setCreated(result);
       setError("");
@@ -161,7 +162,10 @@ export function AdminPage() {
       <div className="admin-view">
         <div className="admin-heading">
           <div><h1>Sessions</h1><p className="intro-copy">Create one private relay at a time.</p></div>
-          <Tag className="health-dot" color="success">System ready</Tag>
+          <div className="admin-heading-actions">
+            <Button href="/admin/recordings">Recordings</Button>
+            <Tag className="health-dot" color="success">System ready</Tag>
+          </div>
         </div>
         <Card className="create-session-card">
           <form className="create-session" onSubmit={createSession}>
@@ -169,6 +173,9 @@ export function AdminPage() {
               <label className="field-label" htmlFor="session-name">Session name</label>
               <Input id="session-name" value={name} onChange={(event) => setName(event.target.value)} minLength={2} maxLength={80} required />
             </div>
+            <Checkbox checked={recordingRequested} onChange={(event) => setRecordingRequested(event.target.checked)}>
+              Record this session
+            </Checkbox>
             <Button className="primary-button success-button" type="primary" htmlType="submit" loading={busy === "create"}>{busy === "create" ? "Creating…" : "Create session"}</Button>
           </form>
         </Card>
@@ -178,6 +185,7 @@ export function AdminPage() {
               <h2>{created.session.name}</h2>
               <CopyLink label="DJ invite" value={created.djUrl} />
               <CopyLink label="Listener invite" value={created.listenerUrl} />
+              {created.session.recording.requested && <Tag className="recording-enabled-tag" color="error">Recording enabled</Tag>}
               <p>These private links are shown once. Copy them now.</p>
             </Card>
           </section>
@@ -193,7 +201,8 @@ export function AdminPage() {
           )}
           {sessions.map((session) => {
             const active = session.state !== "ended" && session.state !== "expired";
-            const sessionDetails = <><h3>{session.name}</h3><p>{session.state} · {sessionAudienceLabel(session)} · expires {new Date(session.expiresAt).toLocaleString()}</p></>;
+            const recordingLabel = session.recording.requested ? ` · recording ${session.recording.status}` : "";
+            const sessionDetails = <><h3>{session.name}</h3><p>{session.state} · {sessionAudienceLabel(session)}{recordingLabel} · expires {new Date(session.expiresAt).toLocaleString()}</p></>;
             return (
               <article className={`session-row ${active ? "is-active" : "is-history"}`} key={session.id}>
                 {active ? (

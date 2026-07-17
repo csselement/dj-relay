@@ -168,6 +168,7 @@ export function BroadcasterPage() {
         <div className="permission-view">
           <h1>Choose your audio</h1>
           <p className="intro-copy">Connect your mixer or audio interface, then allow access to select it.</p>
+          {data.session.recording.requested && <InlineNotice tone="neutral">This session will be recorded and saved for private replay.</InlineNotice>}
           <Button className="primary-button success-button" type="primary" loading={audio.permission === "requesting"} onClick={() => void audio.request()}>
             {audio.permission === "requesting" ? "Waiting for permission…" : "Allow audio access"}
           </Button>
@@ -187,6 +188,7 @@ export function BroadcasterPage() {
         <div className="ready-view t-page broadcast-setup-page" data-page-id="1" ref={setupPageRef} aria-hidden={showLiveStage} inert={showLiveStage}>
           <h1>Choose your audio</h1>
           <p className="intro-copy">Connect your mixer or audio interface, then select it below.</p>
+          {data.session.recording.requested && <InlineNotice tone="neutral">This session will be recorded and saved for private replay.</InlineNotice>}
           <label className="field-label" htmlFor="audio-input">Audio input</label>
           <Select
             id="audio-input"
@@ -199,7 +201,9 @@ export function BroadcasterPage() {
             <Tag className={signalDetected ? "signal-good" : "signal-waiting"} color={signalDetected ? "success" : "default"}>{signalDetected ? "Signal detected" : "Play audio to check signal"}</Tag>
           </div>
           <p className="input-detail">{inputLabel} · {audio.channels === 2 ? "Stereo" : audio.channels ? `${audio.channels} channel` : "Channel count unknown"}{audio.sampleRate ? ` · ${Math.round(audio.sampleRate / 1000)} kHz` : ""}</p>
-          <Button className="primary-button success-button" type="primary" onClick={() => void startBroadcast()} disabled={!audio.stream}>Start broadcast</Button>
+          <Button className="primary-button success-button" type="primary" onClick={() => void startBroadcast()} disabled={!audio.stream}>
+            {data.session.recording.requested ? "Start broadcast and recording" : "Start broadcast"}
+          </Button>
           <Button className="link-button" type="link" onClick={testAudio} disabled={testState === "recording"}>
             {testState === "recording" ? "Recording 5-second test…" : "Test my audio"}
           </Button>
@@ -211,6 +215,7 @@ export function BroadcasterPage() {
         <div className="live-view t-page broadcast-live-page" data-page-id="2" ref={livePageRef} aria-hidden={!showLiveStage} inert={!showLiveStage}>
           <h1 className="live-heading">You’re live</h1>
           <h2 className="session-name">{data.session.name}</h2>
+          {data.session.recording.requested && <Tag className="live-recording-tag" color="error"><span className="recording-dot" aria-hidden="true" />Recording</Tag>}
           <div className="timer" aria-label="Broadcast duration">{formatElapsed(data.session.startedAt ?? startedAt, now)}</div>
           <StereoMeter levels={levels} />
           <Tag className={`connection-state ${connected ? "is-good" : "is-warn"}`} color={connected ? "success" : "warning"}><AnimatedText value={stateText} /></Tag>

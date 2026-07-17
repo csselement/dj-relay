@@ -8,12 +8,14 @@ authHTTPExclude:
   - action: api
   - action: metrics
   - action: pprof
+  - action: playback
 
 api: true
 apiAddress: :9997
 metrics: false
 pprof: false
-playback: false
+playback: true
+playbackAddress: :9996
 moq: false
 
 rtsp: false
@@ -35,6 +37,14 @@ pathDefaults:
   maxReaders: 20
   overridePublisher: false
   record: false
+  recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S-%f
+  recordFormat: fmp4
+  recordPartDuration: 1s
+  recordMaxPartSize: 50M
+  recordSegmentDuration: 1h
+  recordDeleteAfter: 0s
 
 paths:
+  "~^recording-session-":
+    record: true
   all_others:

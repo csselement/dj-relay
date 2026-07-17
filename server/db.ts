@@ -20,6 +20,8 @@ export type RelaySession = {
   djLastSeenAt: string | null;
   interruptedAt: string | null;
   listenerHistoryAvailable: boolean;
+  recordingRequested: boolean;
+  recordingDeletedAt: string | null;
 };
 
 type SessionRow = {
@@ -35,6 +37,8 @@ type SessionRow = {
   listener_tracking_started_at: string | null;
   dj_last_seen_at: string | null;
   interrupted_at: string | null;
+  recording_requested: number;
+  recording_deleted_at: string | null;
   dj_token_hash: string;
   listener_token_hash: string;
 };
@@ -48,6 +52,11 @@ export type AdminSessionPage = {
   active: RelaySession[];
   history: RelaySession[];
   historyTotal: number;
+};
+
+export type RecordingSessionPage = {
+  sessions: RelaySession[];
+  hasMore: boolean;
 };
 
 function mapSession(row: SessionRow): RelaySession {
@@ -65,6 +74,8 @@ function mapSession(row: SessionRow): RelaySession {
     djLastSeenAt: row.dj_last_seen_at,
     interruptedAt: row.interrupted_at,
     listenerHistoryAvailable: Boolean(row.listener_tracking_started_at),
+    recordingRequested: Boolean(row.recording_requested),
+    recordingDeletedAt: row.recording_deleted_at,
   };
 }
 
@@ -90,7 +101,9 @@ export class SessionStore {
         ended_reason TEXT CHECK (ended_reason IN ('dj', 'owner', 'timeout')),
         listener_tracking_started_at TEXT,
         dj_last_seen_at TEXT,
-        interrupted_at TEXT
+        interrupted_at TEXT,
+        recording_requested INTEGER NOT NULL DEFAULT 0 CHECK (recording_requested IN (0, 1)),
+        recording_deleted_at TEXT
       ) STRICT;
       CREATE INDEX IF NOT EXISTS sessions_created_at ON sessions(created_at DESC);
       CREATE TABLE IF NOT EXISTS session_listeners (
@@ -128,6 +141,12 @@ export class SessionStore {
     if (!sessionColumns.some((column) => column.name === "ended_reason")) {
       this.db.exec("ALTER TABLE sessions ADD COLUMN ended_reason TEXT;");
     }
+    if (!sessionColumns.some((column) => column.name === "recording_requested")) {
+      this.db.exec("ALTER TABLE sessions ADD COLUMN recording_requested INTEGER NOT NULL DEFAULT 0 CHECK (recording_requested IN (0, 1));");
+    }
+    if (!sessionColumns.some((column) => column.name === "recording_deleted_at")) {
+      this.db.exec("ALTER TABLE sessions ADD COLUMN recording_deleted_at TEXT;");
+    }
     this.db.exec(`
       UPDATE sessions SET listener_tracking_started_at = NULL
       WHERE state = 'ready' AND started_at IS NULL
@@ -139,20 +158,21 @@ export class SessionStore {
     this.db.close();
   }
 
-  create(name: string, expiresInHours: number): CreatedSession {
+  create(name: string, expiresInHours: number, recordingRequested = false): CreatedSession {
     const id = randomUUID();
     const djToken = randomToken();
     const listenerToken = randomToken();
     const createdAt = new Date();
     const expiresAt = new Date(createdAt.getTime() + expiresInHours * 60 * 60 * 1000);
-    const mediaPath = `session-${randomToken().slice(0, 24)}`;
+    const mediaPath = `${recordingRequested ? "recording-session" : "session"}-${randomToken().slice(0, 24)}`;
 
     this.db.prepare(`
       INSERT INTO sessions (
         id, name, media_path, dj_token_hash, listener_token_hash,
         state, created_at, expires_at, started_at, ended_at, ended_reason,
-        listener_tracking_started_at, dj_last_seen_at, interrupted_at
-      ) VALUES (?, ?, ?, ?, ?, 'ready', ?, ?, NULL, NULL, NULL, ?, ?, NULL)
+        listener_tracking_started_at, dj_last_seen_at, interrupted_at,
+        recording_requested, recording_deleted_at
+      ) VALUES (?, ?, ?, ?, ?, 'ready', ?, ?, NULL, NULL, NULL, ?, ?, NULL, ?, NULL)
     `).run(
       id,
       name,
@@ -163,6 +183,7 @@ export class SessionStore {
       expiresAt.toISOString(),
       createdAt.toISOString(),
       createdAt.toISOString(),
+      recordingRequested ? 1 : 0,
     );
 
     return {
@@ -178,6 +199,8 @@ export class SessionStore {
       djLastSeenAt: createdAt.toISOString(),
       interruptedAt: null,
       listenerHistoryAvailable: true,
+      recordingRequested,
+      recordingDeletedAt: null,
       djToken,
       listenerToken,
     };
@@ -210,6 +233,24 @@ export class SessionStore {
       active: activeRows.map(mapSession),
       history: historyRows.map(mapSession),
       historyTotal: count.count,
+    };
+  }
+
+  listRecordingPage(limit: number, before?: { createdAt: string; id: string }): RecordingSessionPage {
+    const params: Array<string | number> = [];
+    const cursorClause = before ? "AND (created_at < ? OR (created_at = ? AND id < ?))" : "";
+    if (before) params.push(before.createdAt, before.createdAt, before.id);
+    params.push(limit + 1);
+    const rows = this.db.prepare(`
+      SELECT * FROM sessions
+      WHERE recording_requested = 1 AND started_at IS NOT NULL AND recording_deleted_at IS NULL
+      ${cursorClause}
+      ORDER BY created_at DESC, id DESC
+      LIMIT ?
+    `).all(...params) as SessionRow[];
+    return {
+      sessions: rows.slice(0, limit).map(mapSession),
+      hasMore: rows.length > limit,
     };
   }
 
@@ -266,8 +307,19 @@ export class SessionStore {
     if (!row) return null;
 
     const session = mapSession(row);
-    if (session.state === "expired" || session.state === "ended") return null;
-    return { session, role: row.dj_token_hash === hash ? "dj" : "listener" };
+    const role = row.dj_token_hash === hash ? "dj" : "listener";
+    const replayEligible = session.recordingRequested &&
+      (session.state === "expired" || session.state === "ended") && role === "listener";
+    if ((session.state === "expired" || session.state === "ended") && !replayEligible) return null;
+    return { session, role };
+  }
+
+  markRecordingDeleted(id: string, deletedAt = new Date()): RelaySession | null {
+    this.db.prepare(`
+      UPDATE sessions SET recording_deleted_at = ?
+      WHERE id = ? AND recording_requested = 1 AND recording_deleted_at IS NULL
+    `).run(deletedAt.toISOString(), id);
+    return this.get(id);
   }
 
   setState(id: string, state: Exclude<SessionState, "expired">, endedReason: SessionEndReason = "dj"): RelaySession | null {

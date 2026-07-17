@@ -1,5 +1,14 @@
 export type SessionState = "ready" | "live" | "interrupted" | "ended" | "expired";
 
+export type RecordingStatus = "off" | "scheduled" | "recording" | "finalizing" | "ready" | "deleted" | "unavailable";
+
+export type RecordingSummary = {
+  requested: boolean;
+  status: RecordingStatus;
+  durationSeconds: number | null;
+  partCount: number;
+};
+
 export type RelaySession = {
   id: string;
   name: string;
@@ -14,9 +23,20 @@ export type RelaySession = {
   listenerCount: number;
   uniqueListenerCount: number;
   listenerHistoryAvailable: boolean;
+  recording: RecordingSummary;
 };
 
 export type SessionResponse = {
   role: "dj" | "listener";
   session: RelaySession;
+};
+
+export type RecordingResponse = {
+  recording: RecordingSummary;
+  parts: Array<{
+    index: number;
+    start: string;
+    durationSeconds: number;
+    url: string;
+  }>;
 };

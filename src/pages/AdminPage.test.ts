@@ -16,6 +16,7 @@ const session: RelaySession = {
   listenerCount: 3,
   uniqueListenerCount: 5,
   listenerHistoryAvailable: true,
+  recording: { requested: false, status: "off", durationSeconds: null, partCount: 0 },
 };
 
 describe("sessionAudienceLabel", () => {

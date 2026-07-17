@@ -4,8 +4,12 @@ import { createApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { SessionStore } from "./db.js";
 import type { DiscordSessionAnnouncement } from "./discord.js";
+import type { RecordingBackend, RecordingPart } from "./recordings.js";
 
-function testApp(discordNotifier?: (announcement: DiscordSessionAnnouncement) => Promise<void>) {
+function testApp(
+  discordNotifier?: (announcement: DiscordSessionAnnouncement) => Promise<void>,
+  recordings?: RecordingBackend,
+) {
   const config = loadConfig({
     databasePath: ":memory:",
     adminPassword: "owner-test-password",
@@ -16,7 +20,17 @@ function testApp(discordNotifier?: (announcement: DiscordSessionAnnouncement) =>
     secureCookies: false,
   });
   const store = new SessionStore(":memory:");
-  return { app: createApp({ config, store, discordNotifier }), store, config };
+  return { app: createApp({ config, store, discordNotifier, recordings }), store, config };
+}
+
+function recordingBackend(parts: RecordingPart[] = []) {
+  const deleted: string[] = [];
+  const backend: RecordingBackend = {
+    listParts: async () => parts,
+    fetchPart: async () => new Response(Uint8Array.from([1, 2, 3, 4]), { headers: { "Content-Type": "video/mp4" } }),
+    deleteAll: async (path) => { deleted.push(path); },
+  };
+  return { backend, deleted };
 }
 
 describe("Discus API", () => {
@@ -42,6 +56,76 @@ describe("Discus API", () => {
     expect(created.body.listenerUrl).toMatch(/\/s\/[A-Za-z0-9_-]+$/);
     expect(created.body.djUrl).not.toBe(created.body.listenerUrl);
     expect(store.list()).toHaveLength(1);
+    expect(created.body.session.recording).toEqual({ requested: false, status: "off", durationSeconds: null, partCount: 0 });
+  });
+
+  it("records opted-in sessions and serves replay through the original listener link", async () => {
+    const media = recordingBackend([
+      { start: "2026-07-17T20:00:00Z", durationSeconds: 12.5 },
+      { start: "2026-07-17T20:01:00Z", durationSeconds: 8.25 },
+    ]);
+    const { app, store } = testApp(undefined, media.backend); stores.push(store);
+    const owner = request.agent(app);
+    await owner.post("/api/admin/login").send({ password: "owner-test-password" });
+    await owner.post("/api/admin/sessions").send({ name: "Invalid recording", recordingRequested: "yes" }).expect(400);
+    const created = await owner.post("/api/admin/sessions")
+      .send({ name: "Recorded relay", recordingRequested: true })
+      .expect(201);
+    expect(created.body.session.mediaPath).toMatch(/^recording-session-/);
+    expect(created.body.session.recording.status).toBe("scheduled");
+
+    const dj = request.agent(app);
+    await dj.post("/api/invite/exchange").send({ token: created.body.djUrl.split("/").at(-1) }).expect(200);
+    await dj.post("/api/session/state").send({ state: "live" }).expect(200);
+    await owner.delete(`/api/admin/recordings/${created.body.session.id}`).expect(409);
+
+    const listenerToken = created.body.listenerUrl.split("/").at(-1);
+    await dj.post("/api/session/state").send({ state: "ended" }).expect(200);
+    await request(app).post("/api/invite/exchange").send({ token: created.body.djUrl.split("/").at(-1) }).expect(404);
+
+    const replay = request.agent(app);
+    await replay.post("/api/invite/exchange").send({ token: listenerToken }).expect(200);
+    await replay.get("/api/session/recording").expect(200).expect(({ body }) => {
+      expect(body.recording).toEqual({ requested: true, status: "ready", durationSeconds: 20.75, partCount: 2 });
+      expect(body.parts.map((part: { url: string }) => part.url)).toEqual([
+        "/api/session/recording/parts/0",
+        "/api/session/recording/parts/1",
+      ]);
+    });
+    await replay.get("/api/session/recording/parts/0").expect(200).expect("Content-Type", /video\/mp4/);
+    await owner.get(`/api/admin/sessions/${created.body.session.id}/listen`).expect(302).expect("Location", "/listen");
+    await owner.get("/api/admin/recordings?limit=12").expect(200).expect(({ body }) => {
+      expect(body.recordings).toHaveLength(1);
+      expect(body.recordings[0].recording).toMatchObject({ status: "ready", partCount: 2 });
+    });
+
+    await owner.delete(`/api/admin/recordings/${created.body.session.id}`).expect(204);
+    expect(media.deleted).toEqual([created.body.session.mediaPath]);
+    expect(store.get(created.body.session.id)?.recordingDeletedAt).toBeTruthy();
+    await owner.delete(`/api/admin/recordings/${created.body.session.id}`).expect(204);
+    await replay.get("/api/session/recording").expect(200).expect(({ body }) => {
+      expect(body.recording.status).toBe("deleted");
+    });
+    await replay.get("/api/session/recording/parts/0").expect(410);
+  });
+
+  it("allows an ended recording invite to show unavailable even if broadcasting never started", async () => {
+    const media = recordingBackend();
+    const { app, store } = testApp(undefined, media.backend); stores.push(store);
+    const owner = request.agent(app);
+    await owner.post("/api/admin/login").send({ password: "owner-test-password" });
+    const created = await owner.post("/api/admin/sessions")
+      .send({ name: "Unstarted recording", recordingRequested: true })
+      .expect(201);
+    await owner.post(`/api/admin/sessions/${created.body.session.id}/end`).expect(200);
+
+    const replay = request.agent(app);
+    await replay.post("/api/invite/exchange")
+      .send({ token: created.body.listenerUrl.split("/").at(-1) })
+      .expect(200);
+    await replay.get("/api/session/recording").expect(200).expect(({ body }) => {
+      expect(body.recording.status).toBe("finalizing");
+    });
   });
 
   it("lets an authenticated owner open an active session as a listener", async () => {

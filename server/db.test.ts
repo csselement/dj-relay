@@ -42,6 +42,7 @@ describe("SessionStore migrations and lifecycle", () => {
     const store = new SessionStore(path);
     try {
       expect(store.get("legacy-ended")?.listenerHistoryAvailable).toBe(false);
+      expect(store.get("legacy-ended")?.recordingRequested).toBe(false);
       expect(store.get("legacy-ready")?.listenerHistoryAvailable).toBe(true);
       expect(store.get("legacy-expired")).toMatchObject({ state: "expired", listenerHistoryAvailable: false });
 
@@ -54,6 +55,26 @@ describe("SessionStore migrations and lifecycle", () => {
     } finally {
       store.close();
       rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("creates durable recording paths and pages only non-deleted recording sessions", () => {
+    const store = new SessionStore(":memory:");
+    try {
+      const unrecorded = store.create("Unrecorded", 4);
+      const recorded = store.create("Recorded", 4, true);
+      expect(unrecorded.mediaPath).toMatch(/^session-/);
+      expect(recorded.mediaPath).toMatch(/^recording-session-/);
+      expect(recorded).toMatchObject({ recordingRequested: true, recordingDeletedAt: null });
+
+      store.setState(recorded.id, "live");
+      expect(store.listRecordingPage(10).sessions.map((session) => session.id)).toEqual([recorded.id]);
+      store.setState(recorded.id, "ended");
+      store.markRecordingDeleted(recorded.id, new Date("2026-07-17T12:00:00.000Z"));
+      expect(store.get(recorded.id)?.recordingDeletedAt).toBe("2026-07-17T12:00:00.000Z");
+      expect(store.listRecordingPage(10).sessions).toHaveLength(0);
+    } finally {
+      store.close();
     }
   });
 

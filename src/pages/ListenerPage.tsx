@@ -5,6 +5,7 @@ import { sessionApi } from "../api";
 import { AnimatedText } from "../components/AnimatedText";
 import { AppShell } from "../components/AppShell";
 import { InlineNotice } from "../components/InlineNotice";
+import { RecordingPlayer } from "../components/RecordingPlayer";
 import { useSession } from "../hooks/useSession";
 import { WhepReader, type MediaConnectionState } from "../media";
 
@@ -103,7 +104,16 @@ export function ListenerPage() {
 
   if (error) return <ListenerMessage title="Invite link required" message={error} />;
   if (!data) return <ListenerMessage title="Loading session" message="Checking your private listener invite…" />;
-  if (data.session.state === "ended") {
+  if (data.session.state === "ended" || data.session.state === "expired") {
+    if (data.session.recording.requested) {
+      return (
+        <AppShell footer="Private recording · This replay remains available until the producer deletes it.">
+          <div className="listener-view replay-view">
+            <RecordingPlayer sessionName={data.session.name} />
+          </div>
+        </AppShell>
+      );
+    }
     const endedMessage = data.session.endedReason === "dj" ? "The DJ ended this stream." :
       data.session.endedReason === "owner" ? "This stream was ended by the host." :
       data.session.endedReason === "timeout" ? "The DJ disconnected and did not return." :
@@ -131,6 +141,7 @@ export function ListenerPage() {
           )}
         </Tag>
         <h1>{data.session.name}</h1>
+        {data.session.recording.requested && <Tag className="listener-recording-tag" color="error"><span className="recording-dot" aria-hidden="true" />This session is being recorded</Tag>}
         <p className="intro-copy">
           {waitingForDj ? "The DJ connection was lost. This page will reconnect automatically." : connected ? "You’re listening live." : live ? "The DJ is live. Press listen when you’re ready." : "This page will update when the broadcast starts."}
         </p>

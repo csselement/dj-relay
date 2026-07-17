@@ -12,6 +12,7 @@ services:
       MEDIAMTX_AUTH_SECRET: ${MEDIAMTX_AUTH_SECRET:?Set MEDIAMTX_AUTH_SECRET in .env}
       PUBLIC_MEDIA_BASE: /media
       MEDIAMTX_API_URL: http://mediamtx:9997
+      MEDIAMTX_PLAYBACK_URL: http://mediamtx:9996
       MAX_LISTENERS: 20
       DJ_DISCONNECT_GRACE_MS: 60000
       DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
@@ -35,11 +36,13 @@ services:
       MTX_WEBRTCADDITIONALHOSTS: ${DJ_RELAY_DOMAIN:?Set DJ_RELAY_DOMAIN in .env}
     volumes:
       - ./deploy/mediamtx.yml:/mediamtx.yml:ro
+      - relay-recordings:/recordings
     ports:
       - "8189:8189/udp"
       - "8189:8189/tcp"
     expose:
       - "8889"
+      - "9996"
       - "9997"
     depends_on:
       app:
@@ -68,5 +71,6 @@ services:
 
 volumes:
   relay-data:
+  relay-recordings:
   caddy-data:
   caddy-config:

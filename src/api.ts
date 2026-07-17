@@ -1,4 +1,4 @@
-import type { RelaySession, SessionResponse } from "./types";
+import type { RecordingResponse, RelaySession, SessionResponse } from "./types";
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number) {
@@ -23,6 +23,7 @@ export const sessionApi = {
   get: () => api<SessionResponse>("/api/session"),
   mediaToken: () => api<{ token: string; path: string; endpoint: string }>("/api/session/media-token", { method: "POST" }),
   shareLink: () => api<{ url: string }>("/api/session/share-link", { method: "POST" }),
+  recording: () => api<RecordingResponse>("/api/session/recording"),
   setState: (state: "live" | "interrupted" | "ended") =>
     api<{ session: RelaySession }>("/api/session/state", { method: "POST", body: JSON.stringify({ state }) }),
 };

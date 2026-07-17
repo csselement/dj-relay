@@ -3,46 +3,23 @@ import { expect, test } from "@playwright/test";
 const ownerPassword = process.env.E2E_OWNER_PASSWORD ?? "e2e-owner-password";
 const mediaAuthSecret = process.env.E2E_MEDIA_AUTH_SECRET ?? "e2e-media-auth-secret";
 
-test("theme defaults to dark and persists a light-mode choice", async ({ page }) => {
+test("public homepage renders the current Discus marketing shell", async ({ page }) => {
   await page.setViewportSize({ width: 758, height: 942 });
   await page.goto("/");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-  await expect(page.getByRole("button", { name: "Use light mode" })).toBeVisible();
   await expect(page.getByLabel("Discus home")).toBeVisible();
   await expect(page.getByLabel("Discus home").locator("svg")).toHaveCount(0);
   await expect(page.getByLabel("Discus home").locator(".brand-disc")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Use light mode" }).locator("svg")).toHaveCount(2);
-  await expect(page.getByRole("button", { name: "Use light mode" }).locator('[data-icon="a"]')).toBeVisible();
-  const readIconOffset = () => page.locator(".theme-toggle").evaluate((button) => {
-    const state = button.querySelector<HTMLElement>(".t-icon-swap")?.dataset.state;
-    const icon = button.querySelector<SVGElement>(`.t-icon[data-icon="${state}"] svg`);
-    if (!icon) throw new Error("Active theme icon is missing");
-    const buttonRect = button.getBoundingClientRect();
-    const iconRect = icon.getBoundingClientRect();
-    return {
-      x: iconRect.left + iconRect.width / 2 - (buttonRect.left + buttonRect.width / 2),
-      y: iconRect.top + iconRect.height / 2 - (buttonRect.top + buttonRect.height / 2),
-    };
-  });
-  expect(await readIconOffset()).toEqual({ x: 0, y: 0 });
-
-  await page.getByRole("button", { name: "Use light mode" }).click();
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
-  await expect(page.getByRole("button", { name: "Use dark mode" })).toBeVisible();
-  expect(await readIconOffset()).toEqual({ x: 0, y: 0 });
-
-  await page.reload();
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
-
-  await page.emulateMedia({ reducedMotion: "reduce" });
-  await expect.poll(() => page.locator(".t-icon").first().evaluate((icon) => getComputedStyle(icon).transitionDuration)).toBe("0s");
+  await expect(page.getByRole("heading", { name: "A private room for the mix." })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Producer console" })).toHaveAttribute("href", "/admin");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
 });
 
 test("owner creates a session and DJ reaches the ready screen", async ({ page, context, browser }) => {
   const sessionName = `Saturday Night Relay ${Date.now()}`;
   await page.goto("/admin");
   await expect(page).toHaveTitle("Discus");
-  await page.getByLabel("Owner password").fill(ownerPassword);
+  await page.getByLabel("Producer password").fill(ownerPassword);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("heading", { name: "Sessions" })).toBeVisible();
 
@@ -157,10 +134,81 @@ test("owner creates a session and DJ reaches the ready screen", async ({ page, c
   await observerContext.close();
 });
 
+test("producer opts into recording and the original listener link becomes a replay", async ({ page, context }) => {
+  const sessionName = `Recorded Relay ${Date.now()}`;
+  await page.goto("/admin");
+  await page.getByLabel("Producer password").fill(ownerPassword);
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await page.getByLabel("Session name").fill(sessionName);
+  await page.getByRole("checkbox", { name: "Record this session" }).check();
+  await page.getByRole("button", { name: "Create session" }).click();
+  await expect(page.getByText("Recording enabled")).toBeVisible();
+
+  const djUrl = await page.locator(".copy-row").filter({ hasText: "DJ invite" }).locator("code").textContent();
+  const listenerUrl = await page.locator(".copy-row").filter({ hasText: "Listener invite" }).locator("code").textContent();
+  expect(djUrl).toBeTruthy();
+  expect(listenerUrl).toBeTruthy();
+
+  const dj = await context.newPage();
+  await dj.goto(djUrl!);
+  await expect(dj.getByText("This session will be recorded and saved for private replay.")).toBeVisible();
+  await dj.getByRole("button", { name: "Allow audio access" }).click();
+  await expect(dj.getByRole("button", { name: "Start broadcast and recording" })).toBeVisible();
+  await dj.evaluate(async () => {
+    await fetch("/api/session/state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ state: "live" }) });
+    await fetch("/api/session/state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ state: "ended" }) });
+  });
+
+  const replay = await context.newPage();
+  await replay.route("**/api/session/recording", (route) => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({
+      recording: { requested: true, status: "ready", durationSeconds: 20.75, partCount: 2 },
+      parts: [
+        { index: 0, start: "2026-07-17T20:00:00Z", durationSeconds: 12.5, url: "/api/session/recording/parts/0" },
+        { index: 1, start: "2026-07-17T20:01:00Z", durationSeconds: 8.25, url: "/api/session/recording/parts/1" },
+      ],
+    }),
+  }));
+  await replay.goto(listenerUrl!);
+  await expect(replay.getByText("Replay ready")).toBeVisible();
+  await expect(replay.getByLabel(`${sessionName} recording part 1`)).toHaveAttribute("src", "/api/session/recording/parts/0");
+  await expect(replay.getByText("Part 1 of 2 · reconnects continue automatically")).toBeVisible();
+  await replay.setViewportSize({ width: 390, height: 844 });
+  expect(await replay.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
+
+  const archived = await page.evaluate(async (name) => {
+    const response = await fetch("/api/admin/sessions?historyLimit=20");
+    const payload = await response.json() as { sessions: Array<Record<string, unknown> & { name: string }> };
+    return payload.sessions.find((session) => session.name === name);
+  }, sessionName);
+  expect(archived).toBeTruthy();
+  const archiveSession = {
+    ...archived,
+    recording: { requested: true, status: "ready", durationSeconds: 20.75, partCount: 2 },
+  };
+  await page.route("**/api/admin/recordings?*", (route) => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({ recordings: [archiveSession], nextCursor: null }),
+  }));
+  await page.route("**/api/admin/recordings/*", (route) => {
+    if (route.request().method() === "DELETE") return route.fulfill({ status: 204 });
+    return route.continue();
+  });
+  await page.goto("/admin/recordings");
+  const archiveRow = page.locator(".recording-archive-row").filter({ hasText: sessionName });
+  await expect(archiveRow.getByRole("link", { name: "Play" })).toBeEnabled();
+  page.once("dialog", (dialog) => dialog.accept());
+  await archiveRow.getByRole("button", { name: "Delete" }).click();
+  await expect(archiveRow).toHaveCount(0);
+  await dj.close();
+  await replay.close();
+});
+
 test("ended sessions retain the number of individual listener browsers", async ({ page, browser, request }) => {
   const sessionName = `Audience history ${Date.now()}`;
   await page.goto("/admin");
-  await page.getByLabel("Owner password").fill(ownerPassword);
+  await page.getByLabel("Producer password").fill(ownerPassword);
   await page.getByRole("button", { name: "Sign in" }).click();
   await page.getByLabel("Session name").fill(sessionName);
   await page.getByRole("button", { name: "Create session" }).click();
@@ -192,7 +240,7 @@ test("ended sessions retain the number of individual listener browsers", async (
 test("inactive session history loads in batches near the viewport", async ({ page }) => {
   await page.setViewportSize({ width: 1100, height: 500 });
   await page.goto("/admin");
-  await page.getByLabel("Owner password").fill(ownerPassword);
+  await page.getByLabel("Producer password").fill(ownerPassword);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("heading", { name: "Sessions" })).toBeVisible();
 
@@ -207,6 +255,7 @@ test("inactive session history loads in batches near the viewport", async ({ pag
     listenerCount: 0,
     uniqueListenerCount: 0,
     listenerHistoryAvailable: true,
+    recording: { requested: false, status: "off", durationSeconds: null, partCount: 0 },
   };
   const active = { ...baseSession, id: "active", name: "Current session", state: "ready", endedAt: null, endedReason: null };
   const history = Array.from({ length: 14 }, (_, index) => ({

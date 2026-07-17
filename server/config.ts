@@ -6,6 +6,7 @@ export type AppConfig = {
   mediaAuthSecret: string;
   publicMediaBase: string;
   mediaMtxApiUrl: string;
+  mediaMtxPlaybackUrl: string;
   maxListeners: number;
   djDisconnectGraceMs: number;
   discordWebhookUrl: string | null;
@@ -21,6 +22,7 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     mediaAuthSecret: process.env.MEDIAMTX_AUTH_SECRET ?? "dev-media-auth-secret",
     publicMediaBase: process.env.PUBLIC_MEDIA_BASE ?? "http://localhost:8889",
     mediaMtxApiUrl: process.env.MEDIAMTX_API_URL ?? "http://localhost:9997",
+    mediaMtxPlaybackUrl: process.env.MEDIAMTX_PLAYBACK_URL ?? "http://localhost:9996",
     maxListeners: Number(process.env.MAX_LISTENERS ?? 20),
     djDisconnectGraceMs: Number(process.env.DJ_DISCONNECT_GRACE_MS ?? 60_000),
     discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL?.trim() || null,
