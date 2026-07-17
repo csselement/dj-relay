@@ -4,6 +4,7 @@ const ownerPassword = process.env.E2E_OWNER_PASSWORD ?? "e2e-owner-password";
 const mediaAuthSecret = process.env.E2E_MEDIA_AUTH_SECRET ?? "e2e-media-auth-secret";
 
 test("theme defaults to dark and persists a light-mode choice", async ({ page }) => {
+  await page.setViewportSize({ width: 758, height: 942 });
   await page.goto("/");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await expect(page.getByRole("button", { name: "Use light mode" })).toBeVisible();
@@ -12,10 +13,23 @@ test("theme defaults to dark and persists a light-mode choice", async ({ page })
   await expect(page.getByLabel("Discus home").locator(".brand-disc")).toBeVisible();
   await expect(page.getByRole("button", { name: "Use light mode" }).locator("svg")).toHaveCount(2);
   await expect(page.getByRole("button", { name: "Use light mode" }).locator('[data-icon="a"]')).toBeVisible();
+  const readIconOffset = () => page.locator(".theme-toggle").evaluate((button) => {
+    const state = button.querySelector<HTMLElement>(".t-icon-swap")?.dataset.state;
+    const icon = button.querySelector<SVGElement>(`.t-icon[data-icon="${state}"] svg`);
+    if (!icon) throw new Error("Active theme icon is missing");
+    const buttonRect = button.getBoundingClientRect();
+    const iconRect = icon.getBoundingClientRect();
+    return {
+      x: iconRect.left + iconRect.width / 2 - (buttonRect.left + buttonRect.width / 2),
+      y: iconRect.top + iconRect.height / 2 - (buttonRect.top + buttonRect.height / 2),
+    };
+  });
+  expect(await readIconOffset()).toEqual({ x: 0, y: 0 });
 
   await page.getByRole("button", { name: "Use light mode" }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   await expect(page.getByRole("button", { name: "Use dark mode" })).toBeVisible();
+  expect(await readIconOffset()).toEqual({ x: 0, y: 0 });
 
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
