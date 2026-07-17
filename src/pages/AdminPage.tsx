@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, Card, Empty, Input, Tag } from "antd";
 import { api } from "../api";
+import { AnimatedText } from "../components/AnimatedText";
 import { AppShell } from "../components/AppShell";
 import { InlineNotice } from "../components/InlineNotice";
 import type { RelaySession } from "../types";
@@ -237,7 +238,7 @@ function CopyLink({ label, value }: { label: string; value: string }) {
   return (
     <div className="copy-row">
       <div><strong>{label}</strong><code>{value}</code></div>
-      <Button className="copy-button" onClick={() => void copy()}>{copied ? "Copied" : "Copy"}</Button>
+      <Button className="copy-button" onClick={() => void copy()}><AnimatedText value={copied ? "Copied" : "Copy"} /></Button>
     </div>
   );
 }

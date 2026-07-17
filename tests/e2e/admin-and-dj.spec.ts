@@ -10,7 +10,8 @@ test("theme defaults to dark and persists a light-mode choice", async ({ page })
   await expect(page.getByLabel("Discus home")).toBeVisible();
   await expect(page.getByLabel("Discus home").locator("svg")).toHaveCount(0);
   await expect(page.getByLabel("Discus home").locator(".brand-disc")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Use light mode" }).locator("svg")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Use light mode" }).locator("svg")).toHaveCount(2);
+  await expect(page.getByRole("button", { name: "Use light mode" }).locator('[data-icon="a"]')).toBeVisible();
 
   await page.getByRole("button", { name: "Use light mode" }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
@@ -18,6 +19,9 @@ test("theme defaults to dark and persists a light-mode choice", async ({ page })
 
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect.poll(() => page.locator(".t-icon").first().evaluate((icon) => getComputedStyle(icon).transitionDuration)).toBe("0s");
 });
 
 test("owner creates a session and DJ reaches the ready screen", async ({ page, context, browser }) => {
@@ -56,10 +60,14 @@ test("owner creates a session and DJ reaches the ready screen", async ({ page, c
   await dj.goto(djUrl!);
   await expect(dj.getByRole("heading", { name: "Choose your audio" })).toBeVisible();
   await expect(dj.getByRole("heading", { name: "First time? Start here." })).toBeVisible();
-  await dj.getByText("Playing music only from this Mac?").click();
+  const routingHelp = dj.getByRole("button", { name: "Playing music only from this Mac?" });
+  await expect(routingHelp).toHaveAttribute("aria-expanded", "false");
+  await routingHelp.click();
+  await expect(routingHelp).toHaveAttribute("aria-expanded", "true");
   await expect(dj.getByText("Create Multi-Output Device", { exact: false })).toBeVisible();
   await dj.getByRole("button", { name: "Allow audio access" }).click();
   await expect(dj.getByLabel("Audio input")).toBeVisible();
+  await expect(dj.locator(".broadcast-stage")).toHaveAttribute("data-page", "1");
   await expect(dj.getByRole("button", { name: "Start broadcast" })).toBeEnabled();
   await expect(dj.getByText(/Stereo|channel/)).toBeVisible();
   const readMeterWidths = () => dj.locator(".meter-with-status").evaluate((container) => {
@@ -86,12 +94,19 @@ test("owner creates a session and DJ reaches the ready screen", async ({ page, c
   await dj.setViewportSize({ width: 390, height: 844 });
   const mobileMeterWidths = await readMeterWidths();
   expect(mobileMeterWidths.waiting).toEqual(mobileMeterWidths.detected);
-  await dj.getByText("Playing music only from this Mac?").click();
+  await dj.getByRole("button", { name: "Playing music only from this Mac?" }).click();
   await expect(dj.getByRole("link", { name: "Apple’s Multi-Output Device guide" })).toBeVisible();
   await expect(dj.getByRole("button", { name: "Start broadcast" })).toBeVisible();
   const hasHorizontalOverflow = await dj.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
   expect(hasHorizontalOverflow).toBe(false);
   await dj.screenshot({ path: "/tmp/dj-relay-mobile.png", fullPage: true });
+
+  await dj.getByRole("button", { name: "Start broadcast" }).click();
+  await expect(dj.locator(".broadcast-stage")).toHaveAttribute("data-page", "2");
+  await expect(dj.getByRole("heading", { name: "You’re live" })).toBeVisible();
+  await expect.poll(() => dj.locator(".broadcast-live-page").evaluate((page) => getComputedStyle(page).transitionDuration)).toContain("0.2s");
+  await dj.reload();
+  await expect(dj.getByRole("heading", { name: "Choose your audio" })).toBeVisible();
 
   const observerContext = await browser.newContext();
   const observer = await observerContext.newPage();

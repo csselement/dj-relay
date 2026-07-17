@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button, Tag } from "antd";
 import { CopySimple, WifiSlash } from "@phosphor-icons/react";
 import { sessionApi } from "../api";
+import { AnimatedText } from "../components/AnimatedText";
 import { AppShell } from "../components/AppShell";
 import { InlineNotice } from "../components/InlineNotice";
 import { useSession } from "../hooks/useSession";
@@ -120,7 +121,7 @@ export function ListenerPage() {
     <AppShell footer="Private session · Share this page only with invited listeners.">
       <div className="listener-view">
         <Tag className={`listener-live-label ${live ? "is-live" : ""} ${waitingForDj ? "is-interrupted" : ""}`} color={live ? "error" : "default"}>
-          {statusLabel}
+          <AnimatedText value={statusLabel} />
           {waitingToStart && (
             <span className="waiting-activity" aria-hidden="true">
               <span />
@@ -164,7 +165,7 @@ export function ListenerPage() {
             </div>
             <Button className="copy-button listener-copy-button" onClick={() => void copyShareLink()}>
               <CopySimple size={18} weight="bold" aria-hidden="true" />
-              {copied ? "Copied" : "Copy link"}
+              <AnimatedText value={copied ? "Copied" : "Copy link"} />
             </Button>
           </section>
         )}

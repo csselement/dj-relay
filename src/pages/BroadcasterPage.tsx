@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button, Select, Tag } from "antd";
+import { CaretDown } from "@phosphor-icons/react";
 import { sessionApi } from "../api";
+import { AnimatedText } from "../components/AnimatedText";
 import { AppShell } from "../components/AppShell";
 import { InlineNotice } from "../components/InlineNotice";
 import { StereoMeter } from "../components/StereoMeter";
@@ -22,6 +24,8 @@ export function BroadcasterPage() {
   const audio = useAudioInput();
   const levels = useStereoMeter(audio.stream);
   const publisherRef = useRef<WhipPublisher | null>(null);
+  const setupPageRef = useRef<HTMLDivElement>(null);
+  const livePageRef = useRef<HTMLDivElement>(null);
   const [connection, setConnection] = useState<MediaConnectionState | "idle">("idle");
   const [connectionMessage, setConnectionMessage] = useState("");
   const [startedAt, setStartedAt] = useState<string | null>(null);
@@ -29,9 +33,25 @@ export function BroadcasterPage() {
   const [ending, setEnding] = useState(false);
   const [testState, setTestState] = useState<"idle" | "recording" | "ready">("idle");
   const [testUrl, setTestUrl] = useState("");
+  const [stageHeight, setStageHeight] = useState<number>();
   const connected = connection === "connected";
   const broadcasting = connection === "connecting" || connection === "connected" || connection === "reconnecting";
+  const showLiveStage = broadcasting || connection === "closed";
   const signalDetected = Math.max(...levels) > 0.055;
+
+  useLayoutEffect(() => {
+    if (audio.permission !== "granted") return;
+    const activePage = showLiveStage ? livePageRef.current : setupPageRef.current;
+    if (!activePage) return;
+
+    const updateHeight = () => setStageHeight(activePage.scrollHeight);
+    updateHeight();
+
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(activePage);
+    return () => observer.disconnect();
+  }, [audio.permission, data?.session.id, showLiveStage]);
 
   useEffect(() => {
     if (!broadcasting) return;
@@ -142,27 +162,6 @@ export function BroadcasterPage() {
     return <MessageScreen title="Broadcast ended" message="This session is closed. You can safely close this tab." />;
   }
 
-  if (broadcasting || connection === "closed") {
-    const stateText = connected ? "Connection stable" : connection === "reconnecting" ? "Reconnecting…" :
-      connection === "connecting" ? "Connecting…" : "Broadcast ended";
-    return (
-      <AppShell>
-        <div className="live-view">
-          <h1 className="live-heading">You’re live</h1>
-          <h2 className="session-name">{data.session.name}</h2>
-          <div className="timer" aria-label="Broadcast duration">{formatElapsed(data.session.startedAt ?? startedAt, now)}</div>
-          <StereoMeter levels={levels} />
-          <Tag className={`connection-state ${connected ? "is-good" : "is-warn"}`} color={connected ? "success" : "warning"}>{stateText}</Tag>
-          {connectionMessage && connection === "reconnecting" && <p className="connection-detail">{connectionMessage}</p>}
-          <p className="listener-count"><span className="listener-icon" aria-hidden="true" />{data.session.listenerCount} listening</p>
-          <Button className="primary-button danger-button" type="primary" danger loading={ending} onClick={() => void endBroadcast()}>
-            {ending ? "Ending broadcast…" : "End broadcast"}
-          </Button>
-        </div>
-      </AppShell>
-    );
-  }
-
   if (audio.permission !== "granted") {
     return (
       <AppShell>
@@ -179,37 +178,56 @@ export function BroadcasterPage() {
     );
   }
 
+  const stateText = connected ? "Connection stable" : connection === "reconnecting" ? "Reconnecting…" :
+    connection === "connecting" ? "Connecting…" : "Broadcast ended";
+
   return (
     <AppShell>
-      <div className="ready-view">
-        <h1>Choose your audio</h1>
-        <p className="intro-copy">Connect your mixer or audio interface, then select it below.</p>
-        <label className="field-label" htmlFor="audio-input">Audio input</label>
-        <Select
-          id="audio-input"
-          value={audio.selectedId}
-          onChange={(value) => void audio.select(value)}
-          options={audio.devices.map((device) => ({ value: device.deviceId, label: device.label || "Audio input" }))}
-        />
-        <div className="meter-with-status">
-          <StereoMeter levels={levels} />
-          <Tag className={signalDetected ? "signal-good" : "signal-waiting"} color={signalDetected ? "success" : "default"}>{signalDetected ? "Signal detected" : "Play audio to check signal"}</Tag>
+      <div className="broadcast-stage t-page-slide" data-page={showLiveStage ? "2" : "1"} style={stageHeight === undefined ? undefined : { height: stageHeight }}>
+        <div className="ready-view t-page broadcast-setup-page" data-page-id="1" ref={setupPageRef} aria-hidden={showLiveStage} inert={showLiveStage}>
+          <h1>Choose your audio</h1>
+          <p className="intro-copy">Connect your mixer or audio interface, then select it below.</p>
+          <label className="field-label" htmlFor="audio-input">Audio input</label>
+          <Select
+            id="audio-input"
+            value={audio.selectedId}
+            onChange={(value) => void audio.select(value)}
+            options={audio.devices.map((device) => ({ value: device.deviceId, label: device.label || "Audio input" }))}
+          />
+          <div className="meter-with-status">
+            <StereoMeter levels={levels} />
+            <Tag className={signalDetected ? "signal-good" : "signal-waiting"} color={signalDetected ? "success" : "default"}>{signalDetected ? "Signal detected" : "Play audio to check signal"}</Tag>
+          </div>
+          <p className="input-detail">{inputLabel} · {audio.channels === 2 ? "Stereo" : audio.channels ? `${audio.channels} channel` : "Channel count unknown"}{audio.sampleRate ? ` · ${Math.round(audio.sampleRate / 1000)} kHz` : ""}</p>
+          <Button className="primary-button success-button" type="primary" onClick={() => void startBroadcast()} disabled={!audio.stream}>Start broadcast</Button>
+          <Button className="link-button" type="link" onClick={testAudio} disabled={testState === "recording"}>
+            {testState === "recording" ? "Recording 5-second test…" : "Test my audio"}
+          </Button>
+          {testState === "ready" && <audio className="test-player" src={testUrl} controls autoPlay aria-label="Audio input test playback" />}
+          {connectionMessage && <InlineNotice tone="danger">{connectionMessage}</InlineNotice>}
+          {audio.error && <InlineNotice tone="danger">{audio.error}</InlineNotice>}
+          <DjQuickStart />
         </div>
-        <p className="input-detail">{inputLabel} · {audio.channels === 2 ? "Stereo" : audio.channels ? `${audio.channels} channel` : "Channel count unknown"}{audio.sampleRate ? ` · ${Math.round(audio.sampleRate / 1000)} kHz` : ""}</p>
-        <Button className="primary-button success-button" type="primary" onClick={() => void startBroadcast()} disabled={!audio.stream}>Start broadcast</Button>
-        <Button className="link-button" type="link" onClick={testAudio} disabled={testState === "recording"}>
-          {testState === "recording" ? "Recording 5-second test…" : "Test my audio"}
-        </Button>
-        {testState === "ready" && <audio className="test-player" src={testUrl} controls autoPlay aria-label="Audio input test playback" />}
-        {connectionMessage && <InlineNotice tone="danger">{connectionMessage}</InlineNotice>}
-        {audio.error && <InlineNotice tone="danger">{audio.error}</InlineNotice>}
-        <DjQuickStart />
+        <div className="live-view t-page broadcast-live-page" data-page-id="2" ref={livePageRef} aria-hidden={!showLiveStage} inert={!showLiveStage}>
+          <h1 className="live-heading">You’re live</h1>
+          <h2 className="session-name">{data.session.name}</h2>
+          <div className="timer" aria-label="Broadcast duration">{formatElapsed(data.session.startedAt ?? startedAt, now)}</div>
+          <StereoMeter levels={levels} />
+          <Tag className={`connection-state ${connected ? "is-good" : "is-warn"}`} color={connected ? "success" : "warning"}><AnimatedText value={stateText} /></Tag>
+          {connectionMessage && connection === "reconnecting" && <p className="connection-detail">{connectionMessage}</p>}
+          <p className="listener-count"><span className="listener-icon" aria-hidden="true" />{data.session.listenerCount} listening</p>
+          <Button className="primary-button danger-button" type="primary" danger loading={ending} onClick={() => void endBroadcast()}>
+            {ending ? "Ending broadcast…" : "End broadcast"}
+          </Button>
+        </div>
       </div>
     </AppShell>
   );
 }
 
 function DjQuickStart() {
+  const [routingOpen, setRoutingOpen] = useState(false);
+
   return (
     <aside className="dj-help" aria-labelledby="dj-help-title">
       <h2 id="dj-help-title">First time? Start here.</h2>
@@ -218,20 +236,27 @@ function DjQuickStart() {
         <li><strong>Allow</strong> audio access, select the input, then play a track and check for signal.</li>
         <li><strong>Go live</strong> by clicking Start broadcast. Keep this tab open.</li>
       </ol>
-      <details className="dj-help-routing">
-        <summary>Playing music only from this Mac?</summary>
-        <div className="dj-help-routing-body">
-          <p>Use this only when your mixer or interface is not available as an input.</p>
-          <ol>
-            <li>Install <a href="https://existential.audio/blackhole/download/" target="_blank" rel="noreferrer">BlackHole 2ch</a>, then reopen your audio apps.</li>
-            <li>Open <strong>Audio MIDI Setup</strong> → Window → Show Audio Devices.</li>
-            <li>Click <strong>+</strong> → Create Multi-Output Device. Check BlackHole 2ch and your headphones or interface.</li>
-            <li>Make your headphones or interface the Primary Device. Turn on Drift Correction for BlackHole.</li>
-            <li>In your DJ app, choose the Multi-Output Device. Here, choose BlackHole 2ch as the Audio input.</li>
-          </ol>
-          <a className="dj-help-link" href="https://support.apple.com/guide/audio-midi-setup/play-audio-through-multiple-devices-at-once-ams7c093f372/mac" target="_blank" rel="noreferrer">Apple’s Multi-Output Device guide</a>
+      <div className={`dj-help-routing ${routingOpen ? "is-open" : ""}`}>
+        <button className="dj-help-routing-summary" type="button" aria-expanded={routingOpen} aria-controls="dj-help-routing-content" onClick={() => setRoutingOpen((open) => !open)}>
+          <span>Playing music only from this Mac?</span>
+          <CaretDown className="dj-help-routing-chevron" size={16} weight="bold" aria-hidden="true" />
+        </button>
+        <div className="dj-help-routing-grid" id="dj-help-routing-content" aria-hidden={!routingOpen} inert={!routingOpen}>
+          <div className="dj-help-routing-body">
+            <div className="dj-help-routing-inner">
+              <p>Use this only when your mixer or interface is not available as an input.</p>
+              <ol>
+                <li>Install <a href="https://existential.audio/blackhole/download/" target="_blank" rel="noreferrer">BlackHole 2ch</a>, then reopen your audio apps.</li>
+                <li>Open <strong>Audio MIDI Setup</strong> → Window → Show Audio Devices.</li>
+                <li>Click <strong>+</strong> → Create Multi-Output Device. Check BlackHole 2ch and your headphones or interface.</li>
+                <li>Make your headphones or interface the Primary Device. Turn on Drift Correction for BlackHole.</li>
+                <li>In your DJ app, choose the Multi-Output Device. Here, choose BlackHole 2ch as the Audio input.</li>
+              </ol>
+              <a className="dj-help-link" href="https://support.apple.com/guide/audio-midi-setup/play-audio-through-multiple-devices-at-once-ams7c093f372/mac" target="_blank" rel="noreferrer">Apple’s Multi-Output Device guide</a>
+            </div>
+          </div>
         </div>
-      </details>
+      </div>
     </aside>
   );
 }
