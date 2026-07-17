@@ -12,6 +12,10 @@ Discus is a private, browser-based stereo audio relay for remote DJs. It publish
 - Listener jitter buffering for steadier playback
 - Docker deployment with Caddy-managed HTTPS
 
+## Screenshot
+
+![Discus owner console showing session creation and session history](docs/images/discus-admin.jpg)
+
 ## Development
 
 Requirements: Node.js 24+, npm, and a Chromium-based browser.
