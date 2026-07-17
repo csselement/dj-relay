@@ -1,19 +1,10 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#171715" />
     <meta name="referrer" content="no-referrer" />
-    <script>
-      try {
-        const theme = localStorage.getItem("dj-relay-theme") === "light" ? "light" : "dark";
-        document.documentElement.dataset.theme = theme;
-        document.querySelector('meta[name="theme-color"]').setAttribute("content", theme === "light" ? "#f7f6f2" : "#171715");
-      } catch {
-        document.documentElement.dataset.theme = "dark";
-      }
-    </script>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='5' fill='%23242422'/><path d='M8 9h6c6 0 9 2.5 9 7s-3 7-9 7H8V9zm5 4v6h1c2.8 0 4-1 4-3s-1.2-3-4-3h-1z' fill='white'/></svg>" />
     <title>Discus</title>
   </head>

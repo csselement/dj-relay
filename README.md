@@ -4,11 +4,11 @@ Discus is a private, browser-based stereo audio relay for remote DJs. It publish
 
 ## Features
 
-- Private owner, DJ, and listener access
+- Private producer, DJ, and listener access
 - WHIP/WHEP streaming through MediaMTX
 - Stereo input metering and audio-device selection
 - Live and historical listener counts
-- Dark-first responsive interface with optional light mode
+- Dark-only responsive interface
 - Listener jitter buffering for steadier playback
 - Docker deployment with Caddy-managed HTTPS
 

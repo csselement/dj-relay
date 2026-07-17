@@ -139,16 +139,16 @@ export function AdminPage() {
     }
   }
 
-  if (authenticated === null) return <AppShell footer=""><div className="message-view"><h1>Owner console</h1><p className="intro-copy">Loading…</p></div></AppShell>;
+  if (authenticated === null) return <AppShell footer=""><div className="message-view"><h1>Producer console</h1><p className="intro-copy">Loading…</p></div></AppShell>;
   if (!authenticated) {
     return (
-      <AppShell footer="Owner access only">
+      <AppShell footer="Producer access only">
         <form className="admin-login" onSubmit={login}>
-          <h1>Owner console</h1>
+          <h1>Producer console</h1>
           <p className="intro-copy">Create private DJ and listener links.</p>
-          <input type="text" name="username" value="owner" autoComplete="username" hidden readOnly />
-          <label className="field-label" htmlFor="owner-password">Owner password</label>
-          <Input.Password id="owner-password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required />
+          <input type="text" name="username" value="producer" autoComplete="username" hidden readOnly />
+          <label className="field-label" htmlFor="producer-password">Producer password</label>
+          <Input.Password id="producer-password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required />
           <Button className="primary-button success-button" type="primary" htmlType="submit" loading={busy === "login"}>{busy === "login" ? "Signing in…" : "Sign in"}</Button>
           {error && <InlineNotice tone="danger">{error}</InlineNotice>}
         </form>
@@ -157,7 +157,7 @@ export function AdminPage() {
   }
 
   return (
-    <AppShell footer="Discus owner console">
+    <AppShell footer="Discus producer console">
       <div className="admin-view">
         <div className="admin-heading">
           <div><h1>Sessions</h1><p className="intro-copy">Create one private relay at a time.</p></div>

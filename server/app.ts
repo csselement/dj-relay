@@ -59,7 +59,7 @@ function invitePayload(req: Request, config: AppConfig): TokenPayload | null {
 
 function requireAdmin(config: AppConfig) {
   return (req: Request, res: Response, next: NextFunction): void => {
-    if (!adminPayload(req, config)) return sendError(res, 401, "Owner sign-in required");
+    if (!adminPayload(req, config)) return sendError(res, 401, "Producer sign-in required");
     next();
   };
 }
@@ -127,7 +127,7 @@ export function createApp({ config, store, discordNotifier = announceDiscordSess
   app.post("/api/admin/login", (req, res) => {
     const password = typeof req.body?.password === "string" ? req.body.password : "";
     if (!password || !safeEqual(password, config.adminPassword)) {
-      return sendError(res, 401, "Incorrect owner password");
+      return sendError(res, 401, "Incorrect producer password");
     }
     const token = signToken({ kind: "admin", exp: expiresIn(12 * 60 * 60) }, config.tokenSecret);
     res.cookie(ADMIN_COOKIE, token, cookieOptions(config, 12 * 60 * 60 * 1000));
