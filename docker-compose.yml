@@ -14,6 +14,7 @@ services:
       MEDIAMTX_API_URL: http://mediamtx:9997
       MAX_LISTENERS: 20
       DJ_DISCONNECT_GRACE_MS: 60000
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
     volumes:
       - relay-data:/app/data
     read_only: true
@@ -57,6 +58,8 @@ services:
     ports:
       - "443:443"
       - "443:443/udp"
+      - "9440:9440"
+      - "9440:9440/udp"
     depends_on:
       app:
         condition: service_healthy

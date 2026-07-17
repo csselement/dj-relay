@@ -52,6 +52,16 @@ docker compose up -d --build
 
 Keep the application and MediaMTX administration ports private. Caddy obtains the HTTPS certificate and proxies the public web and media routes.
 
+### Discord announcements
+
+To announce the first time a session goes live in one Discord channel, create an incoming webhook in that channel's **Integrations → Webhooks** settings and add its URL to `.env`:
+
+```sh
+DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
+```
+
+The integration is optional. When configured, Discus posts the session name and a private, expiring listener link. A Discord delivery failure is logged but never prevents the broadcast from going live. Treat the webhook URL as a secret.
+
 For repeat deployments from another computer, use any SSH-accessible Linux host:
 
 ```sh

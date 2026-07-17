@@ -1,0 +1,234 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "Can Discus Find a Market?",
+    "description": "Competitive pricing, positioning, and an honest marketability assessment for the Discus MVP.",
+    "generatedAt": "2026-07-16T19:00:00Z",
+    "charts": [
+      {
+        "id": "verified_entry_prices",
+        "title": "Verified entry prices",
+        "subtitle": "Public USD monthly price or monthly equivalent on annual billing, checked July 16, 2026",
+        "type": "bar",
+        "dataset": "entry_prices",
+        "sourceId": "pricing_research",
+        "encodings": {
+          "x": {
+            "field": "offer",
+            "type": "ordinal",
+            "label": "Offer"
+          },
+          "y": {
+            "field": "monthly_usd",
+            "type": "quantitative",
+            "label": "USD per month",
+            "format": "currency"
+          }
+        },
+        "valueFormat": "currency"
+      }
+    ],
+    "tables": [
+      {
+        "id": "competitor_table",
+        "title": "Comparable services",
+        "subtitle": "Direct competitors and substitutes, using current public product and pricing pages",
+        "dataset": "competitors",
+        "sourceId": "pricing_research",
+        "columns": [
+          { "field": "service", "label": "Service", "type": "text" },
+          { "field": "fit", "label": "Closest job", "type": "text" },
+          { "field": "price", "label": "Public pricing", "type": "text" },
+          { "field": "angle", "label": "Marketing angle", "type": "text" },
+          { "field": "implication", "label": "Implication for Discus", "type": "text" }
+        ],
+        "defaultSort": { "field": "service", "direction": "asc" }
+      },
+      {
+        "id": "positioning_table",
+        "title": "Where Discus can and cannot compete",
+        "subtitle": "Product evidence from the current MVP compared with the jobs competitors emphasize",
+        "dataset": "positioning",
+        "sourceId": "discus_product",
+        "columns": [
+          { "field": "dimension", "label": "Dimension", "type": "text" },
+          { "field": "current", "label": "Discus today", "type": "text" },
+          { "field": "market_effect", "label": "Market effect", "type": "text" }
+        ],
+        "defaultSort": { "field": "dimension", "direction": "asc" }
+      }
+    ],
+    "sources": [
+      { "id": "discus_product", "label": "Reviewed Discus product evidence", "path": "product-evidence.sql" },
+      { "id": "pricing_research", "label": "Reviewed competitor pricing evidence", "path": "competitor-pricing.sql" },
+      { "id": "copyright_context", "label": "U.S. Copyright Office licensing overview", "url": "https://copyright.gov/licensing/" }
+    ],
+    "blocks": [
+      {
+        "id": "title",
+        "type": "markdown",
+        "body": "# Can Discus Find a Market?"
+      },
+      {
+        "id": "executive_summary",
+        "type": "markdown",
+        "body": "## Executive Summary\n\n- **Yes, Discus is potentially marketable—but as a narrow niche service, not yet as a broad streaming platform.** The strongest proposition is a disposable, invite-only listening room for a live DJ set: one browser link for the DJ, one for listeners, no listener accounts, and no video overhead.\n- **The market is validated but intensely price-competitive.** Mixlr offers a free three-hour tier, Livesets and SonoBus are free, and Audiomovers LISTENTO starts at a $4.99 monthly equivalent on annual billing. Discus cannot win on generic audio quality or low price alone.\n- **The biggest strategic constraint is music licensing, not code.** An expiring or unlisted link is an access control; it is not itself a license for streaming copyrighted recordings. Discus should initially avoid promising public fan broadcasting or takedown protection and obtain specialist legal advice before commercial launch.\n- **The realistic next move is a paid concierge pilot, not a full SaaS launch.** Test $5 event passes and a $9-$12 founder subscription with small Discord-based DJ collectives, then proceed only if repeat use and payment behavior are real."
+      },
+      {
+        "id": "product_definition",
+        "type": "markdown",
+        "body": "## Discus is selling privacy and immediacy, not a radio station\n\nThe current MVP captures a DJ's mixer or interface in Chrome or Edge, publishes **192 kbps stereo Opus over WebRTC**, and gives invited listeners a browser player. The owner creates separate expiring DJ and listener links; the product tracks live and historical listeners, reconnects after interruptions, supports listener re-sharing, and can announce the session to Discord. The configured ceiling is **20 concurrent listeners**.\n\nThat bundle is meaningfully simpler than an internet-radio stack and more audience-friendly than a pro-audio collaboration tool. Its most defensible promise is: **“Open a private room, connect your mixer, and share one listening link.”**"
+      },
+      {
+        "id": "positioning_evidence",
+        "type": "table",
+        "tableId": "positioning_table"
+      },
+      {
+        "id": "price_finding",
+        "type": "markdown",
+        "body": "## Free and low-cost substitutes make generic pricing difficult\n\nThe chart uses only prices that were directly visible on official pages. It is not an apples-to-apples value comparison: free plans have limits, annual prices require prepayment, and radio products include much more infrastructure. It does show the commercial problem clearly—**a DJ can already try several credible alternatives for $0, while professional low-latency audio is available for under $10 per month on annual billing.**\n\nTherefore, Discus should charge for a workflow competitors do not package as cleanly: a small, temporary, invite-only DJ room with a frictionless listener experience."
+      },
+      {
+        "id": "price_chart",
+        "type": "chart",
+        "chartId": "verified_entry_prices"
+      },
+      {
+        "id": "competition_finding",
+        "type": "markdown",
+        "body": "## Competitors sell scale, professional fidelity, community, or legality\n\nNo single service exactly matches Discus, but each owns a stronger adjacent promise. Mixlr sells effortless professional broadcasting and audience scale. Audiomovers sells lossless, ultra-low-latency professional collaboration. Mixcloud sells a licensed creator ecosystem with monetization. Livesets sells a free DJ-specific community and says it reports tracks and pays performance-rights organizations. SonoBus sells free, open-source technical control. Radio.co sells a complete station business.\n\n**The open lane is smaller:** private social listening for people who do not want a station, creator profile, DAW workflow, installed client, or Discord voice channel."
+      },
+      {
+        "id": "competition_table",
+        "type": "table",
+        "tableId": "competitor_table"
+      },
+      {
+        "id": "verdict",
+        "type": "markdown",
+        "body": "## The honest verdict: promising utility, unproven business\n\n**Discus solves a real problem and is coherent enough to demo and charge for experimentally.** Its setup flow, role-specific links, private access, listener experience, and Discord announcement are more product-like than a technical prototype. A buyer can understand the outcome in one sentence.\n\n**It is not broadly market-ready.** The MVP has one concurrent room, a 20-listener ceiling, no billing, no customer account model, no multi-tenant isolation story, no public reliability record or service-level commitment, no rights-management system, no moderation or abuse workflow, and limited post-session analytics. Self-hosting on one small server is suitable for pilot learning, not a commercial reliability claim.\n\nThe likely business is a **small profitable niche or feature**, not a venture-scale standalone platform, unless customer discovery reveals a larger private-event use case outside copyrighted DJ sets. That is still worthwhile—but it argues for disciplined validation before major engineering."
+      },
+      {
+        "id": "next_steps",
+        "type": "markdown",
+        "body": "## Run a paid pilot before building more platform\n\n1. **Choose one beachhead:** private Discord-based DJ collectives hosting remote sessions for 5-20 invited listeners. Do not market to every broadcaster.\n2. **Test two prices:** a $5 single-session pass and a $9-$12 monthly founder plan. Include a limited free trial, but require real payment during the pilot. These are test prices, not a final pricing recommendation.\n3. **Use a concrete 30-session gate:** recruit 10-15 DJs or collectives and observe at least 30 live sessions. Continue only if at least 50% of activated hosts run a second session within 30 days, at least 25% pay at one test price, at least 90% of sessions start successfully, median DJ setup is under three minutes, and hands-on support stays below ten minutes per session.\n4. **Build only what blocks conversion:** customer accounts and billing, room-level controls, revoke/rotate links, basic branding, stream-health diagnostics, clearer mobile/browser support, and a documented privacy/abuse process.\n5. **Treat licensing as a launch gate:** have counsel assess the intended countries, public-performance implications, platform liability, required terms, takedown process, and whether the exact invite-only use case changes any obligations."
+      },
+      {
+        "id": "further_questions",
+        "type": "markdown",
+        "body": "## Questions that should decide the product direction\n\n- Do hosts value **no listener account** enough to pay, or will they default to Discord, Mixlr, or Mixcloud?\n- Is the buyer the DJ, the collective/community owner, a promoter, or a private-event host?\n- Is 500 ms of listener buffering acceptable for the intended social experience, and is 192 kbps stereo audibly sufficient on real listener devices?\n- Can a legally supportable use case be defined tightly enough to market without implying that private links solve music rights?\n- Does demand remain when the founder is not personally helping with setup?"
+      },
+      {
+        "id": "caveats",
+        "type": "markdown",
+        "body": "## Caveats and assumptions\n\nThis is a July 16, 2026 desk-research assessment using the current local MVP and official public competitor pages. It does not include customer interviews, traffic estimates, conversion data, support burden, measured infrastructure costs, or a legal opinion. Mixcloud's public feature page confirmed its Pro subscription structure and licensed/private streaming features but did not expose a reliable current USD checkout price, so no Mixcloud dollar figure is quoted. Recommended prices and pilot thresholds are decision rules proposed for validation, not observed market benchmarks."
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "generatedAt": "2026-07-16T19:00:00Z",
+    "status": "ready",
+    "datasets": {
+      "entry_prices": [
+        { "offer": "Livesets", "monthly_usd": 0, "billing_basis": "Free" },
+        { "offer": "SonoBus", "monthly_usd": 0, "billing_basis": "Free and open source" },
+        { "offer": "Mixlr Beginner", "monthly_usd": 0, "billing_basis": "3 live hours per month" },
+        { "offer": "LISTENTO Basic, annual", "monthly_usd": 4.99, "billing_basis": "$59.99 billed annually" },
+        { "offer": "LISTENTO Pro, annual", "monthly_usd": 9.99, "billing_basis": "$119.99 billed annually" },
+        { "offer": "Radio.co Lite", "monthly_usd": 35, "billing_basis": "Monthly price shown" },
+        { "offer": "Mixlr Intermediate", "monthly_usd": 49, "billing_basis": "Monthly; $38 monthly equivalent annually" }
+      ],
+      "competitors": [
+        {
+          "service": "Audiomovers LISTENTO",
+          "fit": "Private, high-quality audio links for professional review and collaboration",
+          "price": "Basic $12.99 monthly or $59.99/year; Pro $24.99 monthly or $119.99/year; Business $275/year",
+          "angle": "Lossless, low-latency, multichannel audio for music professionals; 10 Basic or 150 Pro simultaneous listeners",
+          "implication": "The toughest quality and price anchor. Discus must beat it on DJ-room simplicity, not fidelity."
+        },
+        {
+          "service": "Livesets",
+          "fit": "Free live and recorded DJ-set broadcasting",
+          "price": "Free",
+          "angle": "DJ-only discovery community, built-in DJ-software broadcasting, tracklists, recordings, and royalty reporting",
+          "implication": "Directly owns the free DJ niche, but is public/community-oriented rather than disposable and private."
+        },
+        {
+          "service": "Mixcloud Pro",
+          "fit": "Public or unlisted live DJ streaming with creator tools",
+          "price": "Paid Pro subscription; current USD checkout price was not reliably exposed on the public page",
+          "angle": "Licensed streaming without takedowns, royalties to artists, community, uploads, tips, subscriptions, and analytics",
+          "implication": "A stronger choice for public audience growth and rights coverage; Discus should not compete on those claims."
+        },
+        {
+          "service": "Mixlr",
+          "fit": "Simple live-audio events with private access and listener analytics",
+          "price": "Beginner free for 3 live hours/month; Intermediate $49 monthly or $38/month billed annually; Advanced $150 monthly or $83/month annually",
+          "angle": "Effortless professional live audio, unlimited audience scale, branded pages, archives, and reliability",
+          "implication": "Closest broad competitor. Discus can be smaller, more private, more DJ-specific, and cheaper—but less proven."
+        },
+        {
+          "service": "Radio.co",
+          "fit": "Full internet-radio station creation and operation",
+          "price": "Lite $35/month; Standard $59; Plus $139; Premium $199; optional add-ons",
+          "angle": "Launch and grow a station with scheduling, storage, apps, roles, analytics, players, and large audiences",
+          "implication": "Overkill for Discus's use case and proof that complete station operations support much higher pricing."
+        },
+        {
+          "service": "SonoBus",
+          "fit": "Low-latency, multi-user network audio rooms",
+          "price": "Free and open source",
+          "angle": "Technical control, peer-to-peer quality, effects, recording, and cross-platform apps/plugins",
+          "implication": "A powerful free substitute for technical users, but app installation and complex controls leave room for a simpler audience experience."
+        }
+      ],
+      "positioning": [
+        {
+          "dimension": "Audience scale",
+          "current": "20-listener configured ceiling and one private relay at a time",
+          "market_effect": "Suitable for pilots and intimate rooms; not competitive for public broadcasts or large events."
+        },
+        {
+          "dimension": "Broadcaster setup",
+          "current": "Chrome or Edge, HTTPS, mixer/interface input, device selection, stereo meter, five-second test",
+          "market_effect": "Strong usability wedge, though browser and audio-routing edge cases will create support load."
+        },
+        {
+          "dimension": "Distribution",
+          "current": "Expiring listener links, listener re-sharing, optional Discord live announcement",
+          "market_effect": "Good fit for private communities; lacks discovery, persistent channels, embeds, and follower growth."
+        },
+        {
+          "dimension": "Listener friction",
+          "current": "Browser link with no listener account or installed client",
+          "market_effect": "The clearest differentiation against professional collaboration apps and community platforms."
+        },
+        {
+          "dimension": "Reliability",
+          "current": "WebRTC reconnect, 60-second DJ grace period, 500 ms listener jitter target, self-hosted deployment",
+          "market_effect": "Promising mechanics, but no external uptime, device-coverage, or load evidence yet."
+        },
+        {
+          "dimension": "Rights and safety",
+          "current": "Private access controls; no music licensing, content identification, royalty reporting, moderation, or takedown workflow",
+          "market_effect": "Material launch risk for commercial DJ streaming; privacy must not be marketed as licensing."
+        },
+        {
+          "dimension": "Sound",
+          "current": "Stereo Opus targeted at 192 kbps and 48 kHz capture",
+          "market_effect": "Credible listening quality, but not a defensible lead against lossless pro-audio tools."
+        }
+      ]
+    }
+  },
+  "sources": [
+    { "id": "discus_product", "label": "Reviewed Discus product evidence", "path": "product-evidence.sql" },
+    { "id": "pricing_research", "label": "Reviewed competitor pricing evidence", "path": "competitor-pricing.sql" },
+    { "id": "copyright_context", "label": "U.S. Copyright Office licensing overview", "url": "https://copyright.gov/licensing/" }
+  ],
+  "package_info": {}
+}

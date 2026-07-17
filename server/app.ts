@@ -3,6 +3,7 @@ import express, { type NextFunction, type Request, type Response } from "express
 import cookieParser from "cookie-parser";
 import type { AppConfig } from "./config.js";
 import { SessionStore, type RelaySession } from "./db.js";
+import { announceDiscordSession, type DiscordSessionAnnouncement } from "./discord.js";
 import { safeEqual, signToken, verifyToken, type TokenPayload } from "./security.js";
 
 const ADMIN_COOKIE = "djrelay_admin";
@@ -11,6 +12,7 @@ const INVITE_COOKIE = "djrelay_invite";
 type AppDependencies = {
   config: AppConfig;
   store: SessionStore;
+  discordNotifier?: (announcement: DiscordSessionAnnouncement) => Promise<void>;
 };
 
 function expiresIn(seconds: number): number {
@@ -95,7 +97,7 @@ function publicSession(session: RelaySession, listenerCount: number, uniqueListe
   };
 }
 
-export function createApp({ config, store }: AppDependencies) {
+export function createApp({ config, store, discordNotifier = announceDiscordSession }: AppDependencies) {
   const app = express();
   app.disable("x-powered-by");
   app.set("trust proxy", 1);
@@ -296,7 +298,7 @@ export function createApp({ config, store }: AppDependencies) {
     res.json({ url: `${origin}/s/${token}` });
   });
 
-  app.post("/api/session/state", requireInvite(config, store), (req, res) => {
+  app.post("/api/session/state", requireInvite(config, store), async (req, res) => {
     const session = res.locals.session as RelaySession;
     const invite = res.locals.invite as TokenPayload;
     if (invite.role !== "dj") return sendError(res, 403, "Only the DJ can change broadcast state");
@@ -306,6 +308,30 @@ export function createApp({ config, store }: AppDependencies) {
     }
     if (requested !== "ended") store.endStaleSessions(config.djDisconnectGraceMs);
     const updated = store.setState(session.id, requested);
+    if (requested === "live" && !session.startedAt && updated?.startedAt) {
+      const token = signToken({
+        kind: "share",
+        role: "listener",
+        sessionId: updated.id,
+        exp: Math.floor(new Date(updated.expiresAt).getTime() / 1000),
+      }, config.tokenSecret);
+      const origin = `${req.protocol}://${req.get("host")}`;
+      try {
+        await discordNotifier({
+          webhookUrl: config.discordWebhookUrl,
+          sessionId: updated.id,
+          sessionName: updated.name,
+          listenerUrl: `${origin}/s/${token}`,
+        });
+      } catch (error) {
+        console.error(JSON.stringify({
+          level: "error",
+          message: "Discord session notifier failed unexpectedly",
+          sessionId: updated.id,
+          error: error instanceof Error ? error.message : "Unknown error",
+        }));
+      }
+    }
     res.json({ session: updated ? publicSession(updated, 0, store.uniqueListenerCount(updated.id), config.djDisconnectGraceMs) : null });
   });
 

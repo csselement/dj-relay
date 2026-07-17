@@ -27,3 +27,21 @@
 		-Server
 	}
 }
+
+https://{$DJ_RELAY_DOMAIN:localhost}:9440 {
+	tls {
+		issuer {$CADDY_TLS_ISSUER:acme}
+	}
+
+	reverse_proxy https://192.168.8.206:9440 {
+		transport http {
+			tls_insecure_skip_verify
+		}
+	}
+
+	header {
+		Referrer-Policy "no-referrer"
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+}

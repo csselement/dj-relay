@@ -30,7 +30,7 @@ describe("SessionStore migrations and lifecycle", () => {
       );
       INSERT INTO sessions VALUES (
         'legacy-ready', 'Legacy ready session', 'legacy-ready-path', 'dj-ready', 'listener-ready',
-        'ready', '2026-07-13T16:00:00.000Z', '2026-07-14T00:00:00.000Z', NULL, NULL
+        'ready', '2026-07-13T16:00:00.000Z', '2099-07-14T00:00:00.000Z', NULL, NULL
       );
       INSERT INTO sessions VALUES (
         'legacy-expired', 'Legacy expired session', 'legacy-expired-path', 'dj-expired', 'listener-expired',

@@ -1,0 +1,182 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "Private Audio Beyond DJs",
+    "description": "A future-forward product map for turning physical rooms, events, places, and machines into private live audio channels.",
+    "generatedAt": "2026-07-16T22:56:00Z",
+    "charts": [
+      {
+        "id": "opportunity_scores",
+        "title": "Private-audio opportunity screen",
+        "subtitle": "Directional founder judgment on a 0-100 scale; this is not measured market demand",
+        "type": "bar",
+        "dataset": "opportunity_scores",
+        "sourceId": "opportunity_screen",
+        "encodings": {
+          "x": { "field": "opportunity", "type": "ordinal", "label": "Opportunity" },
+          "y": { "field": "screen_score", "type": "quantitative", "label": "Screen score", "format": "number" }
+        },
+        "valueFormat": "number"
+      }
+    ],
+    "tables": [
+      {
+        "id": "market_layers",
+        "title": "The current private-audio stack",
+        "subtitle": "Representative categories and products checked July 16, 2026; not a complete vendor census",
+        "dataset": "market_layers",
+        "sourceId": "market_map",
+        "columns": [
+          { "field": "layer", "label": "Layer", "type": "text" },
+          { "field": "current_examples", "label": "Current examples", "type": "text" },
+          { "field": "established_job", "label": "What is already solved", "type": "text" },
+          { "field": "remaining_opening", "label": "Potential opening", "type": "text" }
+        ],
+        "defaultSort": { "field": "layer", "direction": "asc" }
+      },
+      {
+        "id": "opportunity_portfolio",
+        "title": "Opportunity portfolio",
+        "subtitle": "Ideas are separated by buyer, hardware advantage, and the most likely reason they fail",
+        "dataset": "opportunity_portfolio",
+        "sourceId": "opportunity_screen",
+        "columns": [
+          { "field": "concept", "label": "Concept", "type": "text" },
+          { "field": "first_buyer", "label": "First plausible buyer", "type": "text" },
+          { "field": "why_private_audio", "label": "Why private audio", "type": "text" },
+          { "field": "hardware_job", "label": "Why hardware matters", "type": "text" },
+          { "field": "honest_verdict", "label": "Honest verdict", "type": "text" }
+        ],
+        "defaultSort": { "field": "concept", "direction": "asc" }
+      }
+    ],
+    "sources": [
+      { "id": "opportunity_screen", "label": "Transparent founder-screen model", "path": "opportunity-screen.sql" },
+      { "id": "market_map", "label": "Reviewed private-audio market map", "path": "market-map.sql" },
+      { "id": "mixlr", "label": "Mixlr pricing and private live-stream features", "url": "https://mixlr.com/priceplans" },
+      { "id": "spotify", "label": "Spotify podcast product direction, May 2026", "url": "https://newsroom.spotify.com/2026-05-21/investor-day-podcast-features-updates/" },
+      { "id": "patreon", "label": "Patreon Live product documentation", "url": "https://support.patreon.com/hc/en-gb/articles/29638941178893-Live-setup-and-overview" },
+      { "id": "private_podcasts", "label": "Transistor private podcast model", "url": "https://transistor.fm/features/private-podcasts/" },
+      { "id": "listenwifi", "label": "ListenWIFI venue audio system", "url": "https://www.listentech.com/listenwifi/" },
+      { "id": "auracast", "label": "Bluetooth SIG Auracast public-location uses", "url": "https://www.bluetooth.com/auracast/public-locations/" },
+      { "id": "translation", "label": "LiveTranslation.ai venue translation workflow", "url": "https://livetranslation.ai/" },
+      { "id": "industrial", "label": "NI acoustic condition monitoring overview", "url": "https://www.ni.com/en/solutions/condition-monitoring/what-is-acoustic-monitoring.html" },
+      { "id": "conservation", "label": "Rainforest Connection Guardian technical description", "url": "https://support.rfcx.org/article/166-guardian-technical-description" }
+    ],
+    "blocks": [
+      { "id": "title", "type": "markdown", "body": "# Private Audio Beyond DJs" },
+      {
+        "id": "executive_summary",
+        "type": "markdown",
+        "body": "## Executive Summary\n\n- **The opportunity is not another streaming platform.** It is a trusted physical-to-private-audio gateway: a persistent endpoint that gives a room, event, place, or machine an addressable live channel without requiring someone to operate a computer.\n- **Podcasting is promising only when the device creates content that otherwise would not exist.** The strongest version turns bookstores, workshops, salons, classrooms, rehearsals, and community rooms into live member channels and automatically produces a private podcast replay afterward. A box for conventional home podcasters is much less compelling.\n- **Audio wins where video is too intrusive, expensive, bandwidth-heavy, or socially wrong.** Accessibility, homebound attendance, youth sports, private community events, ambient nature portals, and remote expert listening all benefit from audio's low-friction presence.\n- **The recommended wedge is “Rooms Become Podcasts.”** It is closest to AudioBox and Discus, keeps a recurring venue buyer, and can be validated without production hardware. Accessibility and acoustic monitoring may be larger businesses, but they introduce regulation, specialized sales, or an entirely different company."
+      },
+      {
+        "id": "primitive",
+        "type": "markdown",
+        "body": "## The durable primitive is presence, not broadcasting\n\nPublic livestreaming competes for attention. **Private audio creates permissioned presence:** a listener is allowed to hear what is happening somewhere else, now, without demanding that the source become a video production.\n\nThat distinction produces a stronger product test. The device should be useful because it is physically attached to a meaningful source, remains ready between sessions, authenticates that source, and enforces who may listen and for how long. If the same job is just as easy with a phone on a table, the hardware has no durable role."
+      },
+      {
+        "id": "market_pressure",
+        "type": "markdown",
+        "body": "## Most individual layers already exist; the opening is their boundary\n\nThe market is busy because creation, live streaming, membership, private RSS, venue listening, translation, and acoustic monitoring are all established categories. [Mixlr](https://mixlr.com/priceplans) already offers private live streams with access controls. [Patreon Live](https://support.patreon.com/hc/en-gb/articles/29638941178893-Live-setup-and-overview) brings ticketed or member livestreaming inside a creator platform. [Transistor](https://transistor.fm/features/private-podcasts/) and Hello Audio deliver private podcast feeds.\n\nMeanwhile, Spotify says more than 500 million users have streamed a video podcast and is making podcasting more visual and interactive. **A generic podcast product would therefore fight mature software and a strong video trend.** The less-complete boundary is between the physical source and those services: installed capture, source identity, one-button policy, local fallback, and automatic live-to-archive conversion."
+      },
+      { "id": "market_table", "type": "table", "tableId": "market_layers" },
+      {
+        "id": "podcasting_angle",
+        "type": "markdown",
+        "body": "## Podcast the rooms that nobody is producing today\n\nThe best podcast angle is not **“make podcast recording easier at a desk.”** Podcasters already tolerate computers, multitrack consoles, editing tools, remote-guest software, and distribution dashboards.\n\nThe better proposition is **“this room becomes a podcast channel.”** A bookstore hosts an author talk; a coworking space runs a founder salon; a repair shop teaches a workshop; a community organization holds a discussion. The box is already connected to the room's microphones or mixer. One button opens a private live room. Afterward it automatically produces a cleaned recording, chapters, transcript, summary, consent-aware clips, and a private RSS episode.\n\nThe live moment creates scarcity and belonging. The replay creates durable value. The buyer is the recurring space or membership community—not every speaker who walks through the door."
+      },
+      {
+        "id": "score_context",
+        "type": "markdown",
+        "body": "## Installed-room workflows score best for the current project\n\nThe following screen intentionally rewards a recurring buyer, a real reason for hardware to remain installed, value from access control, competitive whitespace, and proximity to the existing AudioBox/Discus assets. It is a **founder decision tool, not market data**. High scores identify ideas worth interviewing; they do not establish demand or market size."
+      },
+      { "id": "score_chart", "type": "chart", "chartId": "opportunity_scores" },
+      { "id": "portfolio_table", "type": "table", "tableId": "opportunity_portfolio" },
+      {
+        "id": "best_ideas",
+        "type": "markdown",
+        "body": "## Five concepts deserve serious thought\n\n1. **RoomCast — rooms become podcasts.** Installed in bookstores, libraries, coworking spaces, schools, museums, community studios, and clubs. It creates a private live audience and an automatic replay package. This is the strongest near-term wedge.\n2. **Grandstand Radio — private audio for local sports.** A school, club, or parent volunteer provides play-by-play to invited families who cannot attend. Audio is cheaper and less invasive than filming children, but league rights and safeguarding policies must be resolved.\n3. **Access Bridge — one room, many ways to hear.** Feed the house mixer into nearby listening, remote browser audio, captions, and translated channels. [ListenWIFI](https://www.listentech.com/listenwifi/) and [Auracast](https://www.bluetooth.com/auracast/public-locations/) validate the venue need; the product opening would be simpler small-venue operation and one local-plus-remote endpoint. This is attractive but compliance-heavy and partnership-friendly.\n4. **Sonic Windows — private portals into meaningful places.** Botanical gardens, wildlife preserves, artist studios, rehearsal rooms, heritage sites, and listening bars offer scheduled or member-only live soundscapes. The emotional product is not streaming; it is visiting somewhere with your ears. Monetization is uncertain, but the experience is genuinely native to audio.\n5. **Acoustic Watch — let a remote expert hear the machine.** A technician receives an alert and can privately listen to a motor, pump, ventilation system, or remote site. Acoustic condition monitoring is already a real discipline; combining detection with human listen-in may be valuable. This has higher business stakes, but it is far enough from Discus that it should be treated as a separate company thesis, not a feature detour."
+      },
+      {
+        "id": "future_platform",
+        "type": "markdown",
+        "body": "## Future-forward, the box becomes an audio gateway operating system\n\nThe common architecture is more interesting than any single vertical. A source endpoint could provide six programmable layers:\n\n1. **Capture:** stereo line, microphones, digital mixer feeds, or environmental sensors.\n2. **Near:** low-latency local listening over Wi-Fi or future Auracast hardware.\n3. **Anywhere:** encrypted browser rooms for invited remote listeners.\n4. **Transform:** level control, speech cleanup, captions, translation, speaker separation, summaries, and event detection.\n5. **Policy:** public, members-only, expiring, no-recording, automatic deletion, or retained archive.\n6. **After:** local master, private podcast episode, searchable transcript, alerts, or clips.\n\nThe product could eventually load vertical profiles—RoomCast, Grandstand, Access Bridge, Sonic Window—while sharing the same device identity, provisioning, session, and listener infrastructure. The discipline is to sell one profile before calling it a platform."
+      },
+      {
+        "id": "not_build",
+        "type": "markdown",
+        "body": "## Several tempting directions should remain out of scope\n\n- **Do not build another general podcast mixer.** RØDE and others already own the studio-console job.\n- **Do not build a new social-audio network.** Discovery, moderation, creator acquisition, and network effects would overwhelm the hardware advantage.\n- **Do not lead with AI translation.** Current products already promise browser-based translated audio across many languages; translation is a valuable gateway module, not sufficient differentiation by itself.\n- **Do not promise invisible ambient recording.** Every viable concept needs an unmistakable live indicator, explicit consent policy, controllable retention, and an owner accountable for the stream.\n- **Do not combine all verticals in the MVP.** Shared technology does not imply shared buyers, onboarding, compliance, messaging, or sales channels."
+      },
+      {
+        "id": "next_steps",
+        "type": "markdown",
+        "body": "## Validate the room-to-private-feed loop first\n\n1. **Rename the prototype around the job:** test “RoomCast,” “Live Room,” or “Room to Podcast” rather than DJ terminology.\n2. **Recruit three non-DJ rooms:** one bookstore or library, one workshop/coworking venue, and one community or educational space.\n3. **Use existing AudioBox hardware and Discus transport:** add one-button live state, local recording, event title, expiring listener link, and automatic replay publication. Avoid a new circuit board.\n4. **Test two buyer promises:** “include remote members live” versus “automatically turn every event into a private podcast.” Observe which one earns budget.\n5. **Require behavior, not enthusiasm:** each venue must run at least four sessions without the product team present and agree to a paid pilot.\n6. **Interview separate verticals without building them:** youth sports, small-venue accessibility, and acoustic maintenance can each receive five discovery interviews. Promote one only if urgency and willingness to pay clearly exceed RoomCast."
+      },
+      {
+        "id": "questions",
+        "type": "markdown",
+        "body": "## Questions that should drive the next riff\n\n- Is the primary emotional value **being there live**, **belonging to a private group**, or **receiving the replay without production work**?\n- Which physical rooms already have usable microphones or mixer outputs?\n- Who has an existing membership list and recurring programming but weak remote access?\n- Does the listener need to speak back, or is text/Q&A enough? Two-way audio changes the product substantially.\n- Should local nearby listening and remote internet listening be one product or two integrations?\n- Which events are valuable precisely because a camera would make people behave differently?\n- What retention and consent defaults would make participants trust an always-installed audio endpoint?"
+      },
+      {
+        "id": "caveats",
+        "type": "markdown",
+        "body": "## Caveats and assumptions\n\nThis is a July 16, 2026 strategic exploration based on the AudioBox/Discus product boundary and reviewed public product pages. It is not a market-size estimate and includes no new customer interviews, preorder evidence, compliance review, rights analysis, translation-quality testing, or hardware cost model. The opportunity scores are transparent subjective judgments intended to prioritize discovery. Recording consent, accessibility requirements, music and sports rights, youth safeguarding, workplace monitoring, and AI processing rules can materially change the viability of individual concepts."
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "status": "ready",
+    "generatedAt": "2026-07-16T22:56:00Z",
+    "datasets": {
+      "opportunity_scores": [
+        { "opportunity": "Rooms become podcasts", "recurring_buyer": 4, "hardware_leverage": 5, "private_audio_value": 4, "whitespace": 4, "current_fit": 5, "screen_score": 87 },
+        { "opportunity": "Acoustic observability", "recurring_buyer": 5, "hardware_leverage": 5, "private_audio_value": 5, "whitespace": 3, "current_fit": 1, "screen_score": 84 },
+        { "opportunity": "Access + translation", "recurring_buyer": 5, "hardware_leverage": 5, "private_audio_value": 4, "whitespace": 2, "current_fit": 4, "screen_score": 83 },
+        { "opportunity": "Youth sports radio", "recurring_buyer": 4, "hardware_leverage": 4, "private_audio_value": 5, "whitespace": 3, "current_fit": 4, "screen_score": 80 },
+        { "opportunity": "Sonic windows", "recurring_buyer": 3, "hardware_leverage": 5, "private_audio_value": 4, "whitespace": 4, "current_fit": 3, "screen_score": 78 },
+        { "opportunity": "Homebound gatherings", "recurring_buyer": 4, "hardware_leverage": 5, "private_audio_value": 5, "whitespace": 1, "current_fit": 4, "screen_score": 76 },
+        { "opportunity": "Civic/classroom sideband", "recurring_buyer": 4, "hardware_leverage": 4, "private_audio_value": 4, "whitespace": 3, "current_fit": 3, "screen_score": 74 },
+        { "opportunity": "Family ceremonies", "recurring_buyer": 3, "hardware_leverage": 4, "private_audio_value": 5, "whitespace": 2, "current_fit": 4, "screen_score": 70 },
+        { "opportunity": "Creator aftershows", "recurring_buyer": 3, "hardware_leverage": 2, "private_audio_value": 5, "whitespace": 2, "current_fit": 5, "screen_score": 65 }
+      ],
+      "market_layers": [
+        { "layer": "Podcast production", "current_examples": "RØDECaster and recording suites", "established_job": "Microphones, guests, effects, multitrack recording", "remaining_opening": "Little room for another general studio console" },
+        { "layer": "Internet live audio", "current_examples": "Mixlr", "established_job": "Live channels, private access, archives, embeds, analytics", "remaining_opening": "Trusted source appliance and physical-room workflow" },
+        { "layer": "Creator live membership", "current_examples": "Patreon Live", "established_job": "Ticketed or member-only live events and replays", "remaining_opening": "Capture real-world rooms without a production operator" },
+        { "layer": "Private podcast delivery", "current_examples": "Transistor and Hello Audio", "established_job": "Per-listener private RSS for memberships and training", "remaining_opening": "Automatic live-to-private-feed publishing from a room" },
+        { "layer": "Local venue listening", "current_examples": "ListenWIFI and Auracast", "established_job": "Nearby accessibility, tours, silent screens, language channels", "remaining_opening": "One endpoint for nearby and invited remote listeners" },
+        { "layer": "Live translation", "current_examples": "LiveTranslation.ai, Talkeando, others", "established_job": "Translated speech and captions via browser or QR", "remaining_opening": "Persistent venue ingest and installed simplicity" },
+        { "layer": "Acoustic monitoring", "current_examples": "Industrial and conservation sensors", "established_job": "Detect faults, wildlife, threats, or environmental events", "remaining_opening": "Private human listen-in and horizontal gateway" }
+      ],
+      "opportunity_portfolio": [
+        { "concept": "Access Bridge", "first_buyer": "Small venues, houses of worship, civic rooms", "why_private_audio": "Personal listening, captions, translated channels, remote attendance", "hardware_job": "Persistent mixer ingest and local-plus-internet delivery", "honest_verdict": "Attractive need; compliance and incumbents favor partnership first" },
+        { "concept": "Acoustic Watch", "first_buyer": "Facilities and maintenance teams", "why_private_audio": "Only authorized technicians should hear sites and machines", "hardware_job": "Always-on sensors, event detection, remote expert listen-in", "honest_verdict": "High-value but far enough away to be a separate company thesis" },
+        { "concept": "Creator Aftershow", "first_buyer": "Established membership creators", "why_private_audio": "Intimate member access without public distribution", "hardware_job": "One-button feed from an existing studio mixer", "honest_verdict": "Easy adjacency but Patreon, Mixlr, and existing studios reduce the moat" },
+        { "concept": "Family Ceremony", "first_buyer": "Funeral homes and event venues", "why_private_audio": "Private attendance for distant or vulnerable relatives", "hardware_job": "Venue-ready capture without family technical setup", "honest_verdict": "Real emotional need; video and specialized providers already compete" },
+        { "concept": "Grandstand Radio", "first_buyer": "Youth clubs, schools, parent associations", "why_private_audio": "Invited family access without filming children", "hardware_job": "Portable field capture, cellular fallback, simple commentator controls", "honest_verdict": "Promising niche; rights, safeguarding, and volunteer workflow are decisive" },
+        { "concept": "Homebound Gathering", "first_buyer": "Small congregations and community groups", "why_private_audio": "Low-friction presence for people who cannot attend", "hardware_job": "Permanent PA/mixer feed with one-button operation", "honest_verdict": "Obvious value but Mixlr and video streaming make it a sales-execution play" },
+        { "concept": "RoomCast", "first_buyer": "Bookstores, libraries, coworking spaces, schools", "why_private_audio": "Private live member access plus a durable replay", "hardware_job": "The room is always ready; no producer or laptop required", "honest_verdict": "Best current fit and the first concept to test" },
+        { "concept": "Sonic Window", "first_buyer": "Nature preserves, museums, artists, heritage sites", "why_private_audio": "Audio conveys place without surveillance-like video", "hardware_job": "Persistent environmental capture and scheduled access", "honest_verdict": "Distinctive and future-forward; willingness to pay is the main unknown" },
+        { "concept": "Civic/Classroom Sideband", "first_buyer": "Schools, councils, public-interest organizations", "why_private_audio": "Low-bandwidth listen-only access and private translation channels", "hardware_job": "Reliable room feed and explicit session policy", "honest_verdict": "Useful but procurement, records policy, and existing meeting tools slow entry" }
+      ]
+    }
+  },
+  "sources": [
+    { "id": "opportunity_screen", "label": "Transparent founder-screen model", "path": "opportunity-screen.sql" },
+    { "id": "market_map", "label": "Reviewed private-audio market map", "path": "market-map.sql" },
+    { "id": "mixlr", "label": "Mixlr pricing and private live-stream features", "url": "https://mixlr.com/priceplans" },
+    { "id": "spotify", "label": "Spotify podcast product direction, May 2026", "url": "https://newsroom.spotify.com/2026-05-21/investor-day-podcast-features-updates/" },
+    { "id": "patreon", "label": "Patreon Live product documentation", "url": "https://support.patreon.com/hc/en-gb/articles/29638941178893-Live-setup-and-overview" },
+    { "id": "private_podcasts", "label": "Transistor private podcast model", "url": "https://transistor.fm/features/private-podcasts/" },
+    { "id": "listenwifi", "label": "ListenWIFI venue audio system", "url": "https://www.listentech.com/listenwifi/" },
+    { "id": "auracast", "label": "Bluetooth SIG Auracast public-location uses", "url": "https://www.bluetooth.com/auracast/public-locations/" },
+    { "id": "translation", "label": "LiveTranslation.ai venue translation workflow", "url": "https://livetranslation.ai/" },
+    { "id": "industrial", "label": "NI acoustic condition monitoring overview", "url": "https://www.ni.com/en/solutions/condition-monitoring/what-is-acoustic-monitoring.html" },
+    { "id": "conservation", "label": "Rainforest Connection Guardian technical description", "url": "https://support.rfcx.org/article/166-guardian-technical-description" }
+  ],
+  "package_info": {}
+}

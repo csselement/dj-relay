@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RelaySession } from "../types";
-import { sessionAudienceLabel } from "./AdminPage";
+import { defaultSessionName, sessionAudienceLabel } from "./AdminPage";
 
 const session: RelaySession = {
   id: "session-1",
@@ -30,5 +30,16 @@ describe("sessionAudienceLabel", () => {
 
   it("does not misreport legacy sessions whose audience was not tracked", () => {
     expect(sessionAudienceLabel({ ...session, state: "ended", listenerHistoryAvailable: false })).toBe("listener history unavailable");
+  });
+});
+
+describe("defaultSessionName", () => {
+  it.each([
+    ["2026-07-16T16:00:00.000Z", "Thursday Morning Session"],
+    ["2026-07-17T21:00:00.000Z", "Friday Afternoon Session"],
+    ["2026-07-18T01:00:00.000Z", "Friday Evening Session"],
+    ["2026-07-21T05:00:00.000Z", "Monday Night Session"],
+  ])("uses the Los Angeles weekday and time of day for %s", (timestamp, expected) => {
+    expect(defaultSessionName(new Date(timestamp))).toBe(expected);
   });
 });

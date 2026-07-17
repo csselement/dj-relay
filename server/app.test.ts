@@ -3,8 +3,9 @@ import request from "supertest";
 import { createApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { SessionStore } from "./db.js";
+import type { DiscordSessionAnnouncement } from "./discord.js";
 
-function testApp() {
+function testApp(discordNotifier?: (announcement: DiscordSessionAnnouncement) => Promise<void>) {
   const config = loadConfig({
     databasePath: ":memory:",
     adminPassword: "owner-test-password",
@@ -15,7 +16,7 @@ function testApp() {
     secureCookies: false,
   });
   const store = new SessionStore(":memory:");
-  return { app: createApp({ config, store }), store, config };
+  return { app: createApp({ config, store, discordNotifier }), store, config };
 }
 
 describe("Discus API", () => {
@@ -31,12 +32,13 @@ describe("Discus API", () => {
     await owner.post("/api/admin/login").send({ password: "owner-test-password" }).expect(200);
     const created = await owner.post("/api/admin/sessions")
       .set("X-Forwarded-Proto", "https")
-      .send({ name: "Saturday Night Relay", expiresInHours: 8 })
+      .send({ name: "Saturday Night Relay" })
       .expect(201);
 
     expect(created.body.djUrl).toMatch(/^https:\/\//);
     expect(created.body.listenerUrl).toMatch(/^https:\/\//);
     expect(created.body.djUrl).toMatch(/\/s\/[A-Za-z0-9_-]+$/);
+    expect(new Date(created.body.session.expiresAt).getTime() - new Date(created.body.session.createdAt).getTime()).toBe(8 * 60 * 60 * 1000);
     expect(created.body.listenerUrl).toMatch(/\/s\/[A-Za-z0-9_-]+$/);
     expect(created.body.djUrl).not.toBe(created.body.listenerUrl);
     expect(store.list()).toHaveLength(1);
@@ -133,6 +135,62 @@ describe("Discus API", () => {
 
     await dj.post("/api/session/state").send({ state: "ended" }).expect(200);
     expect(store.get(created.body.session.id)).toMatchObject({ state: "ended", endedReason: "dj" });
+  });
+
+  it("announces the first live transition once with a usable listener invite", async () => {
+    const announcements: DiscordSessionAnnouncement[] = [];
+    const { app, store, config } = testApp(async (announcement) => { announcements.push(announcement); });
+    stores.push(store);
+    config.discordWebhookUrl = "https://discord.com/api/webhooks/test/secret";
+    const owner = request.agent(app);
+    await owner.post("/api/admin/login").send({ password: "owner-test-password" });
+    const created = await owner.post("/api/admin/sessions").send({ name: "Discord Relay", expiresInHours: 4 });
+    const djToken = created.body.djUrl.split("/").at(-1);
+    const dj = request.agent(app);
+    await dj.post("/api/invite/exchange").send({ token: djToken }).expect(200);
+
+    await dj.post("/api/session/state")
+      .set("Host", "relay.example")
+      .set("X-Forwarded-Proto", "https")
+      .send({ state: "live" })
+      .expect(200);
+
+    expect(announcements).toHaveLength(1);
+    expect(announcements[0]).toMatchObject({
+      webhookUrl: config.discordWebhookUrl,
+      sessionId: created.body.session.id,
+      sessionName: "Discord Relay",
+    });
+    expect(announcements[0].listenerUrl).toMatch(/^https:\/\/relay\.example\/s\/[A-Za-z0-9_.-]+$/);
+
+    const listener = request.agent(app);
+    await listener.post("/api/invite/exchange")
+      .send({ token: announcements[0].listenerUrl.split("/").at(-1) })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toMatchObject({ role: "listener", destination: "/listen" });
+        expect(body.session.id).toBe(created.body.session.id);
+      });
+
+    await dj.post("/api/session/state").send({ state: "live" }).expect(200);
+    await dj.post("/api/session/state").send({ state: "interrupted" }).expect(200);
+    await dj.post("/api/session/state").send({ state: "live" }).expect(200);
+    expect(announcements).toHaveLength(1);
+  });
+
+  it("keeps the session live when the Discord notifier fails", async () => {
+    const { app, store } = testApp(async () => { throw new Error("Discord unavailable"); });
+    stores.push(store);
+    const owner = request.agent(app);
+    await owner.post("/api/admin/login").send({ password: "owner-test-password" });
+    const created = await owner.post("/api/admin/sessions").send({ name: "Fail-open relay", expiresInHours: 4 });
+    const dj = request.agent(app);
+    await dj.post("/api/invite/exchange").send({ token: created.body.djUrl.split("/").at(-1) });
+
+    await dj.post("/api/session/state").send({ state: "live" }).expect(200).expect(({ body }) => {
+      expect(body.session.state).toBe("live");
+    });
+    expect(store.get(created.body.session.id)?.state).toBe("live");
   });
 
   it("ends a stale active session when the owner list refreshes", async () => {

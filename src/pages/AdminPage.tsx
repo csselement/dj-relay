@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button, Card, Empty, Input, Select, Tag } from "antd";
+import { Button, Card, Empty, Input, Tag } from "antd";
 import { api } from "../api";
 import { AppShell } from "../components/AppShell";
 import { InlineNotice } from "../components/InlineNotice";
@@ -12,6 +12,30 @@ type SessionListResponse = {
 };
 
 const HISTORY_BATCH_SIZE = 6;
+const SESSION_NAME_TIME_ZONE = "America/Los_Angeles";
+
+export function defaultSessionName(now = new Date()): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: SESSION_NAME_TIME_ZONE,
+    weekday: "long",
+    hour: "numeric",
+    hourCycle: "h23",
+  }).formatToParts(now);
+  const weekday = parts.find((part) => part.type === "weekday")?.value;
+  const hour = Number(parts.find((part) => part.type === "hour")?.value);
+
+  if (!weekday || !Number.isInteger(hour)) return "New Session";
+
+  const timeOfDay = hour >= 5 && hour < 12
+    ? "Morning"
+    : hour >= 12 && hour < 17
+      ? "Afternoon"
+      : hour >= 17 && hour < 21
+        ? "Evening"
+        : "Night";
+
+  return `${weekday} ${timeOfDay} Session`;
+}
 
 export function sessionAudienceLabel(session: RelaySession): string {
   if (session.state !== "ended" && session.state !== "expired") return `${session.listenerCount} listening`;
@@ -22,8 +46,7 @@ export function sessionAudienceLabel(session: RelaySession): string {
 export function AdminPage() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [password, setPassword] = useState("");
-  const [name, setName] = useState("Saturday Night Relay");
-  const [expiresInHours, setExpiresInHours] = useState(8);
+  const [name, setName] = useState(defaultSessionName);
   const [sessions, setSessions] = useState<RelaySession[]>([]);
   const [created, setCreated] = useState<CreatedLinks | null>(null);
   const [error, setError] = useState("");
@@ -90,7 +113,7 @@ export function AdminPage() {
     try {
       const result = await api<CreatedLinks>("/api/admin/sessions", {
         method: "POST",
-        body: JSON.stringify({ name, expiresInHours }),
+        body: JSON.stringify({ name }),
       });
       setCreated(result);
       setError("");
@@ -144,15 +167,6 @@ export function AdminPage() {
             <div className="form-field session-name-field">
               <label className="field-label" htmlFor="session-name">Session name</label>
               <Input id="session-name" value={name} onChange={(event) => setName(event.target.value)} minLength={2} maxLength={80} required />
-            </div>
-            <div className="form-field session-expiry-field">
-              <label className="field-label" htmlFor="session-expiry">Expires after</label>
-              <Select
-                id="session-expiry"
-                value={expiresInHours}
-                onChange={(value) => setExpiresInHours(value)}
-                options={[4, 8, 12, 24].map((hours) => ({ value: hours, label: `${hours} hours` }))}
-              />
             </div>
             <Button className="primary-button success-button" type="primary" htmlType="submit" loading={busy === "create"}>{busy === "create" ? "Creating…" : "Create session"}</Button>
           </form>

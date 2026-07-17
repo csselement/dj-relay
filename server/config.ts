@@ -8,6 +8,7 @@ export type AppConfig = {
   mediaMtxApiUrl: string;
   maxListeners: number;
   djDisconnectGraceMs: number;
+  discordWebhookUrl: string | null;
   secureCookies: boolean;
 };
 
@@ -22,6 +23,7 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     mediaMtxApiUrl: process.env.MEDIAMTX_API_URL ?? "http://localhost:9997",
     maxListeners: Number(process.env.MAX_LISTENERS ?? 20),
     djDisconnectGraceMs: Number(process.env.DJ_DISCONNECT_GRACE_MS ?? 60_000),
+    discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL?.trim() || null,
     secureCookies: process.env.NODE_ENV === "production",
     ...overrides,
   };

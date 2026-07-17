@@ -1,0 +1,213 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "The Product Between AudioBox and Discus",
+    "description": "A realistic product thesis for combining a DJ-booth audio appliance with Discus's private streaming service.",
+    "generatedAt": "2026-07-16T21:00:00Z",
+    "charts": [
+      {
+        "id": "normalized_hardware_prices",
+        "title": "Approximate hardware price positions",
+        "subtitle": "Public prices converted to USD using July 16, 2026 ECB reference rates; excludes taxes, shipping, and service fees",
+        "type": "bar",
+        "dataset": "normalized_prices",
+        "sourceId": "price_evidence",
+        "encodings": {
+          "x": { "field": "product", "type": "ordinal", "label": "Product" },
+          "y": { "field": "approx_usd", "type": "quantitative", "label": "Approximate USD", "format": "currency" }
+        },
+        "valueFormat": "currency"
+      }
+    ],
+    "tables": [
+      {
+        "id": "project_synthesis",
+        "title": "Project synthesis",
+        "subtitle": "What to preserve, replace, and combine from the two existing prototypes",
+        "dataset": "project_synthesis",
+        "sourceId": "product_evidence",
+        "columns": [
+          { "field": "dimension", "label": "Dimension", "type": "text" },
+          { "field": "audiobox", "label": "AudioBox", "type": "text" },
+          { "field": "discus", "label": "Discus", "type": "text" },
+          { "field": "hybrid", "label": "Best combined product", "type": "text" }
+        ],
+        "defaultSort": { "field": "dimension", "direction": "asc" }
+      },
+      {
+        "id": "hardware_competitors",
+        "title": "Hardware alternatives",
+        "subtitle": "Current products spanning phone interfaces and standalone broadcast encoders, checked July 16, 2026",
+        "dataset": "hardware_competitors",
+        "sourceId": "market_evidence",
+        "columns": [
+          { "field": "product", "label": "Product", "type": "text" },
+          { "field": "price", "label": "Public price", "type": "text" },
+          { "field": "computer_phone", "label": "External device", "type": "text" },
+          { "field": "marketing", "label": "What it sells", "type": "text" },
+          { "field": "gap", "label": "Remaining gap", "type": "text" }
+        ],
+        "defaultSort": { "field": "product", "direction": "asc" }
+      }
+    ],
+    "sources": [
+      { "id": "product_evidence", "label": "Reviewed AudioBox and Discus product evidence", "path": "product-evidence.sql" },
+      { "id": "market_evidence", "label": "Reviewed hardware competitor evidence", "path": "hardware-competitors.sql" },
+      { "id": "price_evidence", "label": "Normalized public hardware prices", "path": "price-normalization.sql" },
+      { "id": "licensing_context", "label": "U.S. Copyright Office licensing overview", "url": "https://copyright.gov/licensing/" }
+    ],
+    "blocks": [
+      { "id": "title", "type": "markdown", "body": "# The Product Between AudioBox and Discus" },
+      {
+        "id": "executive_summary",
+        "type": "markdown",
+        "body": "## Executive Summary\n\n- **There is something valuable to learn from AudioBox, but it is not simply “add hardware to Discus.”** AudioBox correctly treated the DJ booth as an appliance environment: plug into the mixer's analog output, press a button, and keep computers out of the performance path. Discus contributes the much better session, privacy, link, listener, reconnection, and notification layer.\n- **Laptop-free DJ capture is already a real product category.** EvermixBox5 (£159) and Howler (€219) sell compact mixer-connected hardware for recording and livestreaming, and both lean heavily on phone-based operation. That validates demand but makes a new personal phone accessory a crowded proposition.\n- **The less saturated product is a venue-owned booth endpoint.** Leave it connected to a club, record store, radio room, or recurring event booth; any DJ can start a private or branded live-audio session without supplying a laptop or configuring a phone. The device records locally and uses the Discus service for secure streaming and listener access.\n- **This is a plausible specialty hardware-plus-service business, not yet a proven mass market.** The right validation is five real venues and paid preorders, not more general-purpose engineering."
+      },
+      {
+        "id": "lesson",
+        "type": "markdown",
+        "body": "## AudioBox's strongest idea was ownership of the booth workflow\n\nAudioBox was a two-Raspberry-Pi system: a Zero 2W plus AudioInjector HAT captured analog stereo, GStreamer encoded it, and a separate Pi running Icecast distributed the stream. It supported configurable codecs, gain, bitrate, level metering, a browser control panel, and roughly two-to-five-second latency.\n\nThe architecture was operationally heavy—two devices, local networking, server administration, port forwarding, and a persistent public stream—but the **product boundary was right**. The DJ did not have to install OBS, route desktop audio, or sacrifice a performance computer. For vinyl and CDJ workflows, that matters."
+      },
+      { "id": "synthesis_table", "type": "table", "tableId": "project_synthesis" },
+      {
+        "id": "market_reality",
+        "type": "markdown",
+        "body": "## The phone-accessory market is validated—and already occupied\n\nEvermixBox5 explicitly promises “no laptops” and says it is trusted by more than 15,000 DJs, promoters, and venues; the current product page shows £159. Howler sells a €219 battery-powered recorder and streamer with local microSD recording, level indication, and a rugged enclosure. IK Multimedia's iRig Stream and AlphaTheta's DJM-REC solve adjacent workflows through a phone or computer.\n\nAt the other end, Barix's $485 Instreamer ICE is already a standalone stereo line-level Icecast encoder for professional installations. **The gap is therefore between consumer phone interfaces and generic professional encoders:** a DJ-specific, managed, standalone booth appliance with a modern listener service."
+      },
+      { "id": "price_chart", "type": "chart", "chartId": "normalized_hardware_prices" },
+      { "id": "hardware_table", "type": "table", "tableId": "hardware_competitors" },
+      {
+        "id": "concept",
+        "type": "markdown",
+        "body": "## The product should stay in the venue, not travel with every DJ\n\nWorking name: **Discus Booth**. The one-sentence promise is: **“Leave it connected to the booth. Any DJ can record and open a private live listening room with one button.”**\n\nThe hardware would accept stereo RCA record output, show safe input level and connection status, record a full-quality local backup to removable storage, and send an outbound encrypted stream to the Discus service over Ethernet or Wi-Fi. The service would create the expiring listener room, track listeners, announce to Discord, handle reconnection, and close the room. Setup and fleet management would live with the venue owner—not with each performer.\n\nA phone could remain an optional control surface or network fallback, but it should not be required once the device is provisioned. This is the meaningful difference from Evermix, Howler, and iRig."
+      },
+      {
+        "id": "buyer",
+        "type": "markdown",
+        "body": "## The beachhead is recurring physical spaces\n\nBest initial customers:\n\n1. **Boutique clubs and bars** with a permanent booth and rotating vinyl or CDJ performers.\n2. **Record stores and community-radio rooms** that host recurring in-store sets.\n3. **DJ collectives and promoters** that repeatedly use the same event rig and Discord community.\n4. **Small festivals or pop-up series** that want an audio-only remote room without an OBS production stack.\n\nPoor initial customers are individual bedroom DJs, general social-video creators, large broadcasters, and DJs who already stream comfortably from a laptop. Those groups have cheaper or more capable incumbents."
+      },
+      {
+        "id": "economics",
+        "type": "markdown",
+        "body": "## A credible price sits between DJ interfaces and pro encoders\n\nA reasonable **test**, not a forecast, is **$299-$399 for hardware plus $12-$20 per venue per month** for managed sessions, updates, device monitoring, and bounded listener usage. Another test is $399 including the first service year, which is easier to buy as venue equipment.\n\nThat range is intentionally above phone interfaces such as Evermix and Howler, but below a generic $485 Barix encoder before adding a streaming service or DJ-specific experience. For $299 retail, the landed hardware cost likely needs to remain around $120 or less to leave room for assembly, certification, fulfillment, support, warranty replacements, and retailer margin. If that cost structure is not achievable, the product needs either a higher-value venue buyer or a service-led lease model."
+      },
+      {
+        "id": "risks",
+        "type": "markdown",
+        "body": "## Hardware removes DJ friction but creates company friction\n\nThe difficult work moves into provisioning, Wi-Fi failures, power quality, analog clipping, ground hum, storage corruption, enclosure durability, thermal behavior, remote updates, replacements, certification, and international fulfillment. Ethernet-first operation and a local recording fallback reduce several of those risks. A Raspberry Pi Zero 2W and audio HAT are appropriate for the next prototype; they should not be assumed to be the final production architecture.\n\nMusic licensing remains a separate launch constraint. A private listener room and hardware appliance do not automatically clear performance or digital-transmission rights. Public fan broadcasting should not be the leading claim until the intended use and jurisdictions have been reviewed professionally."
+      },
+      {
+        "id": "validation",
+        "type": "markdown",
+        "body": "## Validate the installed-appliance thesis before designing new hardware\n\n1. **Create one hybrid prototype** from existing AudioBox hardware: analog stereo input, local recording, one-button state, and secure outbound ingest into the Discus listener service. Avoid redesigning the enclosure or circuit board.\n2. **Install it in five recurring spaces** for six to eight weeks. Prefer a club, record store, radio room, and two collectives with materially different networks and mixers.\n3. **Measure operational value:** sessions attempted and completed, time from button press to usable listener link, clipping or silence incidents, network recoveries, support minutes, repeat hosts, and listener joins.\n4. **Require a commercial signal:** continue only if at least three of five locations will preorder at $299 or sign a $30-$40 monthly hardware-included commitment; at least 90% of sessions start without remote intervention; and median support stays below ten minutes per venue per month after onboarding.\n5. **Build production hardware only after that gate.** If venues use it but will not pay, preserve the device-ingest capability as a Discus feature and stop the hardware program."
+      },
+      {
+        "id": "further_questions",
+        "type": "markdown",
+        "body": "## Questions that would change the recommendation\n\n- Do venue operators actually want a stream, or do DJs primarily want a local recording?\n- Who owns the listener relationship and the music-rights responsibility: venue, promoter, DJ, or platform?\n- Is private community listening valuable without video, chat, discovery, or archived playback?\n- Is reliable venue Ethernet available, or would cellular connectivity be mandatory?\n- Does a one-button appliance create enough value beyond leaving an EvermixBox and phone in the booth?\n- Will venues pay recurring service fees, or does the product need a prepaid hardware model?"
+      },
+      {
+        "id": "caveats",
+        "type": "markdown",
+        "body": "## Caveats and assumptions\n\nThis is a July 16, 2026 product assessment based on local AudioBox and Discus implementation artifacts plus public manufacturer and reseller pages. It includes no venue interviews, preorder data, measured bill of materials, certification quotes, infrastructure cost model, or legal opinion. Competitor prices are shown in their native public currencies rather than converted, because exchange-rate normalization would imply precision that does not improve this strategic comparison. Proposed prices, cost limits, and validation gates are experiments for customer discovery, not market facts."
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "generatedAt": "2026-07-16T21:00:00Z",
+    "status": "ready",
+    "datasets": {
+      "project_synthesis": [
+        {
+          "dimension": "Broadcaster",
+          "audiobox": "Dedicated analog-input Raspberry Pi encoder",
+          "discus": "DJ's Chrome or Edge browser captures an audio device",
+          "hybrid": "Dedicated booth encoder publishes into a Discus-managed session"
+        },
+        {
+          "dimension": "Control",
+          "audiobox": "Local web panel and manual stream configuration",
+          "discus": "Owner console, role-specific links, session states",
+          "hybrid": "Physical start/stop plus owner web console and remote device status"
+        },
+        {
+          "dimension": "Distribution",
+          "audiobox": "Separate Icecast Pi, DDNS, port forwarding, persistent player",
+          "discus": "Managed MediaMTX relay with expiring listener access",
+          "hybrid": "Outbound-only device connection to managed relay and disposable rooms"
+        },
+        {
+          "dimension": "Failure handling",
+          "audiobox": "Troubleshooting across capture Pi, LAN, Icecast Pi, and router",
+          "discus": "Reconnect state, grace period, listener buffering, session closure",
+          "hybrid": "Local lossless recording plus automatic stream recovery and fleet alerts"
+        },
+        {
+          "dimension": "Ideal user",
+          "audiobox": "Any analog source, broadly described",
+          "discus": "Computer-based invited DJ and small listener group",
+          "hybrid": "Recurring venue or collective with analog mixer output and rotating DJs"
+        },
+        {
+          "dimension": "Listener experience",
+          "audiobox": "Public Icecast HTML player and server statistics",
+          "discus": "Private browser room, no listener account, sharing, live state",
+          "hybrid": "Keep the Discus room and listener workflow"
+        }
+      ],
+      "hardware_competitors": [
+        {
+          "product": "Barix Instreamer ICE",
+          "price": "$485",
+          "computer_phone": "None after network configuration",
+          "marketing": "Professional stereo line-level MP3/AAC Icecast encoder with an internal server for up to 100 listeners",
+          "gap": "Standalone but generic, installation-oriented, and lacks a DJ session/listener product"
+        },
+        {
+          "product": "EvermixBox5",
+          "price": "£159",
+          "computer_phone": "Phone or tablet required",
+          "marketing": "Plug-and-play DJ recording and livestreaming with RCA input, app editing, uploads, and no laptop",
+          "gap": "Removes the laptop but still depends on a personal mobile device and app workflow"
+        },
+        {
+          "product": "Howler MK2",
+          "price": "€219",
+          "computer_phone": "Phone, tablet, or computer required for livestreaming",
+          "marketing": "Rugged one-button 24-bit recorder and phone streaming interface for DJs and bands",
+          "gap": "Excellent capture appliance, but not a network encoder or managed private-room service"
+        },
+        {
+          "product": "IK Multimedia iRig Stream",
+          "price": "$119.99 at B&H",
+          "computer_phone": "Phone, tablet, Mac, or PC required",
+          "marketing": "Portable stereo RCA interface that routes mixers into popular recording and social-streaming apps",
+          "gap": "Interface only; the user supplies the network device, app, distribution, and audience workflow"
+        },
+        {
+          "product": "AlphaTheta DJM-REC",
+          "price": "Free app with paid recording and livestreaming features after a 30-day trial",
+          "computer_phone": "Compatible iPhone and supported DJ mixer required",
+          "marketing": "One-cable recording and livestreaming from compatible AlphaTheta mixers",
+          "gap": "Convenient but ecosystem-limited and phone-dependent"
+        }
+      ],
+      "normalized_prices": [
+        { "product": "IK iRig Stream", "native_price": "$119.99", "approx_usd": 120, "dependency": "Phone, tablet, Mac, or PC required" },
+        { "product": "EvermixBox5", "native_price": "£159", "approx_usd": 215, "dependency": "Phone required" },
+        { "product": "Howler MK2", "native_price": "€219", "approx_usd": 251, "dependency": "Phone required for livestreaming" },
+        { "product": "Barix Instreamer ICE", "native_price": "$485", "approx_usd": 485, "dependency": "Standalone after provisioning" }
+      ]
+    }
+  },
+  "sources": [
+    { "id": "product_evidence", "label": "Reviewed AudioBox and Discus product evidence", "path": "product-evidence.sql" },
+    { "id": "market_evidence", "label": "Reviewed hardware competitor evidence", "path": "hardware-competitors.sql" },
+    { "id": "price_evidence", "label": "Normalized public hardware prices", "path": "price-normalization.sql" },
+    { "id": "licensing_context", "label": "U.S. Copyright Office licensing overview", "url": "https://copyright.gov/licensing/" }
+  ],
+  "package_info": {}
+}
