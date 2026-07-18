@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button, Select, Tag } from "antd";
-import { CaretDown } from "@phosphor-icons/react";
+import { CaretDown, CopySimple } from "@phosphor-icons/react";
 import { sessionApi } from "../api";
+import { copyText } from "../clipboard";
 import { AnimatedText } from "../components/AnimatedText";
 import { AppShell } from "../components/AppShell";
 import { InlineNotice } from "../components/InlineNotice";
@@ -33,6 +34,9 @@ export function BroadcasterPage() {
   const [ending, setEnding] = useState(false);
   const [testState, setTestState] = useState<"idle" | "recording" | "ready">("idle");
   const [testUrl, setTestUrl] = useState("");
+  const [shareUrl, setShareUrl] = useState("");
+  const [shareError, setShareError] = useState("");
+  const [copied, setCopied] = useState(false);
   const [stageHeight, setStageHeight] = useState<number>();
   const connected = connection === "connected";
   const broadcasting = connection === "connecting" || connection === "connected" || connection === "reconnecting";
@@ -75,6 +79,13 @@ export function BroadcasterPage() {
   }, [broadcasting]);
 
   useEffect(() => () => publisherRef.current?.close(), []);
+  useEffect(() => {
+    if (!data?.session.id || data.session.state === "ended" || data.session.state === "expired") return;
+    void sessionApi.shareLink().then(({ url }) => {
+      setShareUrl(url);
+      setShareError("");
+    }).catch(() => setShareError("Could not create the audience link."));
+  }, [data?.session.id]);
   useEffect(() => {
     if (data?.session.state !== "ended") return;
     publisherRef.current?.close();
@@ -131,6 +142,17 @@ export function BroadcasterPage() {
     } catch (caught) {
       setConnectionMessage(caught instanceof Error ? caught.message : "Could not end the broadcast");
       setEnding(false);
+    }
+  }
+
+  async function copyShareLink() {
+    if (!shareUrl) return;
+    try {
+      await copyText(shareUrl);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setShareError("Could not copy the link. Select the link and copy it manually.");
     }
   }
 
@@ -221,6 +243,20 @@ export function BroadcasterPage() {
           <Tag className={`connection-state ${connected ? "is-good" : "is-warn"}`} color={connected ? "success" : "warning"}><AnimatedText value={stateText} /></Tag>
           {connectionMessage && connection === "reconnecting" && <p className="connection-detail">{connectionMessage}</p>}
           <p className="listener-count"><span className="listener-icon" aria-hidden="true" />{data.session.listenerCount} listening</p>
+          {shareUrl && (
+            <section className="listener-share broadcast-share" aria-labelledby="broadcast-share-label">
+              <div className="listener-share-copy">
+                <strong id="broadcast-share-label">Audience link</strong>
+                <a href={shareUrl} target="_blank" rel="noreferrer">{shareUrl}</a>
+                <span>Anyone with this link can listen.</span>
+              </div>
+              <Button className="copy-button listener-copy-button" onClick={() => void copyShareLink()}>
+                <CopySimple size={18} weight="bold" aria-hidden="true" />
+                <AnimatedText value={copied ? "Copied" : "Copy link"} />
+              </Button>
+            </section>
+          )}
+          {shareError && <InlineNotice tone="danger">{shareError}</InlineNotice>}
           <Button className="primary-button danger-button" type="primary" danger loading={ending} onClick={() => void endBroadcast()}>
             {ending ? "Ending broadcast…" : "End broadcast"}
           </Button>

@@ -4,7 +4,6 @@ type AppShellProps = {
   children: ReactNode;
   contentClassName?: string;
   footer?: ReactNode;
-  headerAction?: ReactNode;
   shellClassName?: string;
 };
 
@@ -12,7 +11,6 @@ export function AppShell({
   children,
   contentClassName = "",
   footer = "Keep this tab open while you play.",
-  headerAction,
   shellClassName = "",
 }: AppShellProps) {
   return (
@@ -23,7 +21,9 @@ export function AppShell({
             <span className="brand-mark brand-disc" aria-hidden="true" />
             <span>Discus</span>
           </a>
-          {headerAction && <div className="app-header-actions">{headerAction}</div>}
+          <div className="app-header-actions">
+            <a className="header-console-link" href="/admin">Producer console</a>
+          </div>
         </div>
       </header>
       <main className={`app-content ${contentClassName}`.trim()}>{children}</main>

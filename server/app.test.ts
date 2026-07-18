@@ -1,10 +1,16 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { pipeline } from "node:stream/promises";
 import request from "supertest";
 import { createApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { SessionStore } from "./db.js";
 import type { DiscordSessionAnnouncement } from "./discord.js";
 import type { RecordingBackend, RecordingPart } from "./recordings.js";
+import type { Mp3Transcoder } from "./transcoding.js";
+
+const passthroughMp3Transcoder: Mp3Transcoder = async (input, output) => {
+  await pipeline(input, output);
+};
 
 function testApp(
   discordNotifier?: (announcement: DiscordSessionAnnouncement) => Promise<void>,
@@ -20,7 +26,11 @@ function testApp(
     secureCookies: false,
   });
   const store = new SessionStore(":memory:");
-  return { app: createApp({ config, store, discordNotifier, recordings }), store, config };
+  return {
+    app: createApp({ config, store, discordNotifier, recordings, mp3Transcoder: passthroughMp3Transcoder }),
+    store,
+    config,
+  };
 }
 
 function recordingBackend(parts: RecordingPart[] = []) {
@@ -77,7 +87,7 @@ describe("Discus API", () => {
     const dj = request.agent(app);
     await dj.post("/api/invite/exchange").send({ token: created.body.djUrl.split("/").at(-1) }).expect(200);
     await dj.post("/api/session/state").send({ state: "live" }).expect(200);
-    await owner.delete(`/api/admin/recordings/${created.body.session.id}`).expect(409);
+    await owner.delete(`/api/admin/sessions/${created.body.session.id}`).expect(409);
 
     const listenerToken = created.body.listenerUrl.split("/").at(-1);
     await dj.post("/api/session/state").send({ state: "ended" }).expect(200);
@@ -92,28 +102,62 @@ describe("Discus API", () => {
         "/api/session/recording/parts/1",
       ]);
       expect(body.parts.map((part: { downloadUrl: string }) => part.downloadUrl)).toEqual([
-        "/api/session/recording/parts/0?download=1",
-        "/api/session/recording/parts/1?download=1",
+        "/api/session/recording/parts/0?download=mp3",
+        "/api/session/recording/parts/1?download=mp3",
       ]);
     });
     await replay.get("/api/session/recording/parts/0").expect(200).expect("Content-Type", /video\/mp4/);
-    await replay.get("/api/session/recording/parts/0?download=1")
+    await replay.get("/api/session/recording/parts/0?download=mp3")
       .expect(200)
-      .expect("Content-Disposition", "attachment; filename=\"Recorded-relay-part-1.mp4\"");
+      .expect("Content-Type", /audio\/mpeg/)
+      .expect("Content-Disposition", "attachment; filename=\"Recorded-relay-part-1.mp3\"");
     await owner.get(`/api/admin/sessions/${created.body.session.id}/listen`).expect(302).expect("Location", "/listen");
     await owner.get("/api/admin/recordings?limit=12").expect(200).expect(({ body }) => {
       expect(body.recordings).toHaveLength(1);
       expect(body.recordings[0].recording).toMatchObject({ status: "ready", partCount: 2 });
     });
 
-    await owner.delete(`/api/admin/recordings/${created.body.session.id}`).expect(204);
+    await owner.delete(`/api/admin/sessions/${created.body.session.id}`).expect(204);
     expect(media.deleted).toEqual([created.body.session.mediaPath]);
-    expect(store.get(created.body.session.id)?.recordingDeletedAt).toBeTruthy();
-    await owner.delete(`/api/admin/recordings/${created.body.session.id}`).expect(204);
-    await replay.get("/api/session/recording").expect(200).expect(({ body }) => {
-      expect(body.recording.status).toBe("deleted");
+    expect(store.get(created.body.session.id)).toBeNull();
+    await owner.get("/api/admin/recordings?limit=12").expect(200).expect(({ body }) => {
+      expect(body.recordings).toHaveLength(0);
     });
+    await owner.delete(`/api/admin/sessions/${created.body.session.id}`).expect(404);
+    await replay.get("/api/session/recording").expect(410);
     await replay.get("/api/session/recording/parts/0").expect(410);
+  });
+
+  it("deletes a concluded session without a recording", async () => {
+    const media = recordingBackend();
+    const { app, store } = testApp(undefined, media.backend); stores.push(store);
+    const owner = request.agent(app);
+    await owner.post("/api/admin/login").send({ password: "owner-test-password" });
+    const created = await owner.post("/api/admin/sessions")
+      .send({ name: "Unrecorded relay", recordingRequested: false })
+      .expect(201);
+    await owner.post(`/api/admin/sessions/${created.body.session.id}/end`).expect(200);
+
+    await owner.delete(`/api/admin/sessions/${created.body.session.id}`).expect(204);
+
+    expect(store.get(created.body.session.id)).toBeNull();
+    expect(media.deleted).toEqual([]);
+  });
+
+  it("keeps the session entry when its recording cannot be deleted", async () => {
+    const media = recordingBackend([{ start: "2026-07-17T20:00:00Z", durationSeconds: 12.5 }]);
+    media.backend.deleteAll = async () => { throw new Error("Storage unavailable"); };
+    const { app, store } = testApp(undefined, media.backend); stores.push(store);
+    const owner = request.agent(app);
+    await owner.post("/api/admin/login").send({ password: "owner-test-password" });
+    const created = await owner.post("/api/admin/sessions")
+      .send({ name: "Preserved relay", recordingRequested: true })
+      .expect(201);
+    await owner.post(`/api/admin/sessions/${created.body.session.id}/end`).expect(200);
+
+    await owner.delete(`/api/admin/sessions/${created.body.session.id}`).expect(502);
+
+    expect(store.get(created.body.session.id)).not.toBeNull();
   });
 
   it("allows an ended recording invite to show unavailable even if broadcasting never started", async () => {
@@ -332,7 +376,7 @@ describe("Discus API", () => {
     });
   });
 
-  it("lets a listener create and share a session-scoped listener invite", async () => {
+  it("lets DJs and listeners create a session-scoped listener invite", async () => {
     const { app, store } = testApp(); stores.push(store);
     const owner = request.agent(app);
     await owner.post("/api/admin/login").send({ password: "owner-test-password" });
@@ -354,6 +398,14 @@ describe("Discus API", () => {
 
     const dj = request.agent(app);
     await dj.post("/api/invite/exchange").send({ token: djToken }).expect(200);
-    await dj.post("/api/session/share-link").expect(403);
+    const djShared = await dj.post("/api/session/share-link").expect(200);
+    expect(djShared.body.url).toMatch(/\/s\/[A-Za-z0-9_.-]+$/);
+
+    const djInvitedListener = request.agent(app);
+    const djSharedToken = djShared.body.url.split("/").at(-1);
+    await djInvitedListener.post("/api/invite/exchange").send({ token: djSharedToken }).expect(200).expect(({ body }) => {
+      expect(body).toMatchObject({ role: "listener", destination: "/listen" });
+      expect(body.session.id).toBe(created.body.session.id);
+    });
   });
 });

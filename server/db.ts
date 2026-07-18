@@ -314,12 +314,9 @@ export class SessionStore {
     return { session, role };
   }
 
-  markRecordingDeleted(id: string, deletedAt = new Date()): RelaySession | null {
-    this.db.prepare(`
-      UPDATE sessions SET recording_deleted_at = ?
-      WHERE id = ? AND recording_requested = 1 AND recording_deleted_at IS NULL
-    `).run(deletedAt.toISOString(), id);
-    return this.get(id);
+  remove(id: string): boolean {
+    const result = this.db.prepare("DELETE FROM sessions WHERE id = ?").run(id);
+    return Number(result.changes) > 0;
   }
 
   setState(id: string, state: Exclude<SessionState, "expired">, endedReason: SessionEndReason = "dj"): RelaySession | null {

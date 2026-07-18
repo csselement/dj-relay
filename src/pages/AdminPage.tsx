@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, Card, Empty, Input, Tag } from "antd";
+import { Trash } from "@phosphor-icons/react";
 import { api } from "../api";
 import { AnimatedText } from "../components/AnimatedText";
 import { AppShell } from "../components/AppShell";
@@ -55,7 +56,7 @@ export function AdminPage() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState<"login" | "create" | null>(null);
   const [endingId, setEndingId] = useState("");
-  const [deletingRecordingId, setDeletingRecordingId] = useState("");
+  const [deletingSessionId, setDeletingSessionId] = useState("");
   const [historyLimit, setHistoryLimit] = useState(HISTORY_BATCH_SIZE);
   const [historyLoaded, setHistoryLoaded] = useState(0);
   const [historyHasMore, setHistoryHasMore] = useState(false);
@@ -142,17 +143,18 @@ export function AdminPage() {
     }
   }
 
-  async function deleteRecording(session: RelaySession) {
-    if (!window.confirm(`Delete the recording of “${session.name}”? This cannot be undone.`)) return;
-    setDeletingRecordingId(session.id);
+  async function deleteSession(session: RelaySession) {
+    const recordingCopy = session.recording.requested ? " and its recording" : "";
+    if (!window.confirm(`Delete “${session.name}”${recordingCopy}? This cannot be undone.`)) return;
+    setDeletingSessionId(session.id);
     try {
-      await api(`/api/admin/recordings/${session.id}`, { method: "DELETE" });
+      await api(`/api/admin/sessions/${session.id}`, { method: "DELETE" });
       await loadSessions();
       setError("");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unable to delete recording");
+      setError(caught instanceof Error ? caught.message : "Unable to delete session");
     } finally {
-      setDeletingRecordingId("");
+      setDeletingSessionId("");
     }
   }
 
@@ -230,7 +232,6 @@ export function AdminPage() {
           {sessions.map((session) => {
             const active = session.state !== "ended" && session.state !== "expired";
             const recordingLabel = recordingArchiveLabel(session);
-            const recordingReady = !active && session.recording.status === "ready";
             const sessionDetails = (
               <>
                 <h3 className="session-row-title">
@@ -253,21 +254,23 @@ export function AdminPage() {
                 <p>{session.state} · {sessionAudienceLabel(session)}{recordingLabel} · expires {new Date(session.expiresAt).toLocaleString()}</p>
               </>
             );
-            const recordingDeletable = !active && session.recording.requested &&
-              session.recording.status !== "deleted" && session.recording.status !== "finalizing";
+            const sessionDeletable = !active && session.recording.status !== "finalizing";
             return (
               <article className={`session-row ${active ? "is-active" : "is-history"}`} key={session.id}>
                 <div className="session-row-copy">{sessionDetails}</div>
                 <div className="session-row-actions">
                   {active && <Button className="small-danger-button" danger loading={endingId === session.id} onClick={() => void endSession(session.id)}>{endingId === session.id ? "Ending…" : "End"}</Button>}
-                  {recordingReady && (
-                    <Button href={`/api/admin/sessions/${session.id}/listen`} target="_blank">
-                      Open session
-                    </Button>
-                  )}
-                  {recordingDeletable && (
-                    <Button danger loading={deletingRecordingId === session.id} onClick={() => void deleteRecording(session)}>
-                      Delete recording
+                  {!active && (
+                    <Button
+                      className="session-delete-button"
+                      danger
+                      disabled={!sessionDeletable}
+                      loading={deletingSessionId === session.id}
+                      aria-label={`Delete session ${session.name}`}
+                      title={sessionDeletable ? "Delete session" : "Recording is still finalizing"}
+                      onClick={() => void deleteSession(session)}
+                    >
+                      <Trash aria-hidden="true" size={19} weight="bold" />
                     </Button>
                   )}
                 </div>

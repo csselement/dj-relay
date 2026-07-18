@@ -2,30 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { Button, Tag } from "antd";
 import { CopySimple, WifiSlash } from "@phosphor-icons/react";
 import { sessionApi } from "../api";
+import { copyText } from "../clipboard";
 import { AnimatedText } from "../components/AnimatedText";
 import { AppShell } from "../components/AppShell";
 import { InlineNotice } from "../components/InlineNotice";
 import { RecordingPlayer } from "../components/RecordingPlayer";
 import { useSession } from "../hooks/useSession";
 import { WhepReader, type MediaConnectionState } from "../media";
-
-async function copyText(text: string): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return;
-  } catch {
-    const field = document.createElement("textarea");
-    field.value = text;
-    field.setAttribute("readonly", "");
-    field.style.position = "fixed";
-    field.style.opacity = "0";
-    document.body.appendChild(field);
-    field.select();
-    const copied = document.execCommand("copy");
-    field.remove();
-    if (!copied) throw new Error("Clipboard unavailable");
-  }
-}
 
 function formatCountdown(seconds: number): string {
   const minutes = Math.floor(seconds / 60);

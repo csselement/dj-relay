@@ -10,7 +10,7 @@ test("records a browser relay, replays it, and deletes the archive", async ({ pa
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("heading", { name: "Sessions" })).toBeVisible();
   await page.getByLabel("Session name").fill(sessionName);
-  await page.getByLabel("Record this session").check();
+  await expect(page.getByRole("switch", { name: "Record" })).toHaveAttribute("aria-checked", "true");
   await page.getByRole("button", { name: "Create session" }).click();
 
   const djUrl = await page.locator(".copy-row").filter({ hasText: "DJ invite" }).locator("code").textContent();
@@ -74,7 +74,7 @@ test("records a browser relay, replays it, and deletes the archive", async ({ pa
   await page.waitForTimeout(2_000);
 
   await reconnectedDj.getByRole("button", { name: "End broadcast" }).click();
-  await expect(listener.getByText("Replay ready")).toBeVisible({ timeout: 45_000 });
+  await expect(listener.getByText("This session has concluded. Recorded playback is ready.")).toBeVisible({ timeout: 45_000 });
   await expect(listener.locator("audio")).toHaveAttribute("src", /\/api\/session\/recording\/parts\/0/);
   const recordingMetadata = await listener.evaluate(async () => {
     const response = await fetch("/api/session/recording");
@@ -102,21 +102,26 @@ test("records a browser relay, replays it, and deletes the archive", async ({ pa
     const response = await fetch(downloadUrl);
     return {
       ok: response.ok,
+      contentType: response.headers.get("content-type"),
       disposition: response.headers.get("content-disposition"),
       size: (await response.arrayBuffer()).byteLength,
     };
   }, recordingMetadata.parts[0].downloadUrl);
   expect(downloadResponse.ok).toBe(true);
+  expect(downloadResponse.contentType).toContain("audio/mpeg");
   expect(downloadResponse.disposition).toContain("attachment;");
+  expect(downloadResponse.disposition).toContain(".mp3");
   expect(downloadResponse.size).toBeGreaterThan(0);
   await listener.screenshot({ path: "/tmp/discus-recording-live-replay.png" });
 
   const recording = page.locator(".session-row").filter({ hasText: sessionName });
   await expect(recording).toContainText("recording ready", { timeout: 15_000 });
-  await expect(recording.getByRole("link", { name: "Open session" })).toBeVisible();
+  await expect(recording.getByRole("link", { name: `Open ${sessionName} listener page` })).toBeVisible();
+  await expect(recording.getByRole("link", { name: "Open session" })).toHaveCount(0);
   page.once("dialog", (dialog) => void dialog.accept());
-  await recording.getByRole("button", { name: "Delete recording" }).click();
-  await expect(recording).toContainText("recording deleted", { timeout: 15_000 });
-  await expect(listener.getByText("This recording was deleted by the producer.")).toBeVisible({ timeout: 15_000 });
+  await recording.getByRole("button", { name: `Delete session ${sessionName}` }).click();
+  await expect(recording).toHaveCount(0, { timeout: 15_000 });
+  await listener.reload();
+  await expect(listener.getByText("This session has expired")).toBeVisible({ timeout: 15_000 });
   await listenerContext.close();
 });

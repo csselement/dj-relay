@@ -34,7 +34,6 @@ export function HomePage() {
     <AppShell
       shellClassName="marketing-shell"
       contentClassName="marketing-content"
-      headerAction={<a className="header-console-link" href="/admin">Producer console</a>}
       footer={null}
     >
       <section className="marketing-home" aria-labelledby="marketing-home-title">

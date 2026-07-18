@@ -15,6 +15,7 @@ import {
   type RecordingSummary,
 } from "./recordings.js";
 import { safeEqual, signToken, verifyToken, type TokenPayload } from "./security.js";
+import { transcodeToMp3, type Mp3Transcoder } from "./transcoding.js";
 
 const ADMIN_COOKIE = "djrelay_admin";
 const INVITE_COOKIE = "djrelay_invite";
@@ -24,6 +25,7 @@ type AppDependencies = {
   store: SessionStore;
   discordNotifier?: (announcement: DiscordSessionAnnouncement) => Promise<void>;
   recordings?: RecordingBackend;
+  mp3Transcoder?: Mp3Transcoder;
 };
 
 function expiresIn(seconds: number): number {
@@ -139,6 +141,7 @@ export function createApp({
   store,
   discordNotifier = announceDiscordSession,
   recordings = new MediaMtxRecordingBackend(config.mediaMtxPlaybackUrl, config.mediaMtxApiUrl),
+  mp3Transcoder = transcodeToMp3,
 }: AppDependencies) {
   const app = express();
   app.disable("x-powered-by");
@@ -164,32 +167,43 @@ export function createApp({
     );
   }
 
-  async function streamRecordingPart(session: RelaySession, index: number, download: boolean, res: Response): Promise<void> {
+  async function streamRecordingPart(session: RelaySession, index: number, downloadMp3: boolean, res: Response): Promise<void> {
     const parts = await recordings.listParts(session.mediaPath);
     const part = parts[index];
     if (!part) return sendError(res, 404, "Recording part not found");
 
     const controller = new AbortController();
-    const abort = () => controller.abort();
+    const abort = () => {
+      if (!res.writableEnded) controller.abort();
+    };
     res.once("close", abort);
     try {
       const upstream = await recordings.fetchPart(session.mediaPath, part, controller.signal);
       if (!upstream.ok || !upstream.body) return sendError(res, 502, "Recording playback is temporarily unavailable");
       res.status(upstream.status);
-      res.setHeader("Content-Type", upstream.headers.get("content-type") ?? "video/mp4");
       res.setHeader("Cache-Control", "private, no-store");
       const safeName = session.name.normalize("NFKD")
         .replace(/[^a-zA-Z0-9._-]+/g, "-")
         .replace(/^-+|-+$/g, "")
         .slice(0, 80) || "discus-recording";
-      const filename = parts.length > 1 ? `${safeName}-part-${index + 1}.mp4` : `${safeName}.mp4`;
-      res.setHeader("Content-Disposition", download ? `attachment; filename="${filename}"` : "inline");
-      const contentLength = upstream.headers.get("content-length");
-      if (contentLength) res.setHeader("Content-Length", contentLength);
-      await pipeline(Readable.fromWeb(upstream.body as NodeReadableStream<Uint8Array>), res);
+      const input = Readable.fromWeb(upstream.body as NodeReadableStream<Uint8Array>);
+      if (downloadMp3) {
+        const filename = parts.length > 1 ? `${safeName}-part-${index + 1}.mp3` : `${safeName}.mp3`;
+        res.setHeader("Content-Type", "audio/mpeg");
+        res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+        await mp3Transcoder(input, res, controller.signal);
+      } else {
+        res.setHeader("Content-Type", upstream.headers.get("content-type") ?? "video/mp4");
+        res.setHeader("Content-Disposition", "inline");
+        const contentLength = upstream.headers.get("content-length");
+        if (contentLength) res.setHeader("Content-Length", contentLength);
+        await pipeline(input, res);
+      }
     } catch (error) {
       if (!controller.signal.aborted && !res.headersSent) {
         sendError(res, 502, error instanceof Error ? error.message : "Recording playback failed");
+      } else if (!controller.signal.aborted && !res.writableEnded) {
+        res.destroy(error instanceof Error ? error : undefined);
       }
     } finally {
       res.removeListener("close", abort);
@@ -291,6 +305,26 @@ export function createApp({
     res.redirect("/listen");
   });
 
+  app.delete("/api/admin/sessions/:id", requireAdmin(config), async (req, res) => {
+    const session = store.get(String(req.params.id));
+    if (!session) return sendError(res, 404, "Session not found");
+    if (session.state !== "ended" && session.state !== "expired") {
+      return sendError(res, 409, "Active sessions must be ended before deletion");
+    }
+
+    try {
+      if (session.recordingRequested && !session.recordingDeletedAt) {
+        const { summary } = await recordingDetails(session, recordings);
+        if (summary.status === "finalizing") return sendError(res, 409, "This recording is still finalizing");
+        await recordings.deleteAll(session.mediaPath);
+      }
+      store.remove(session.id);
+      res.sendStatus(204);
+    } catch (error) {
+      sendError(res, 502, error instanceof Error ? error.message : "Session deletion failed");
+    }
+  });
+
   app.get("/api/admin/recordings", requireAdmin(config), async (req, res) => {
     const requestedLimit = Number(req.query.limit ?? 12);
     if (!Number.isSafeInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > 50) {
@@ -308,22 +342,6 @@ export function createApp({
       recordings: sessions,
       nextCursor: page.hasMore && page.sessions.length > 0 ? encodeCursor(page.sessions.at(-1) as RelaySession) : null,
     });
-  });
-
-  app.delete("/api/admin/recordings/:sessionId", requireAdmin(config), async (req, res) => {
-    const session = store.get(String(req.params.sessionId));
-    if (!session || !session.recordingRequested) return sendError(res, 404, "Recording not found");
-    if (session.recordingDeletedAt) return res.sendStatus(204);
-    if (!isReplaySession(session)) return sendError(res, 409, "Active recordings cannot be deleted");
-    try {
-      const { summary } = await recordingDetails(session, recordings);
-      if (summary.status === "finalizing") return sendError(res, 409, "This recording is still finalizing");
-      await recordings.deleteAll(session.mediaPath);
-      store.markRecordingDeleted(session.id);
-      res.sendStatus(204);
-    } catch (error) {
-      sendError(res, 502, error instanceof Error ? error.message : "Recording deletion failed");
-    }
   });
 
   app.post("/api/invite/exchange", async (req, res) => {
@@ -402,7 +420,9 @@ export function createApp({
 
   app.post("/api/session/share-link", requireInvite(config, store), (req, res) => {
     const invite = res.locals.invite as TokenPayload;
-    if (invite.role !== "listener") return sendError(res, 403, "Only listeners can create a listener invite");
+    if (invite.role !== "listener" && invite.role !== "dj") {
+      return sendError(res, 403, "DJ or listener access required");
+    }
     store.endStaleSessions(config.djDisconnectGraceMs);
     const session = store.get((res.locals.session as RelaySession).id);
     if (!session || session.state === "ended" || session.state === "expired") {
@@ -432,7 +452,7 @@ export function createApp({
         start: part.start,
         durationSeconds: part.durationSeconds,
         url: `/api/session/recording/parts/${index}`,
-        downloadUrl: `/api/session/recording/parts/${index}?download=1`,
+        downloadUrl: `/api/session/recording/parts/${index}?download=mp3`,
       })),
     });
   });
@@ -446,7 +466,7 @@ export function createApp({
     }
     const index = Number(req.params.index);
     if (!Number.isSafeInteger(index) || index < 0) return sendError(res, 404, "Recording part not found");
-    await streamRecordingPart(session, index, req.query.download === "1", res);
+    await streamRecordingPart(session, index, req.query.download === "mp3" || req.query.download === "1", res);
   });
 
   app.post("/api/session/state", requireInvite(config, store), async (req, res) => {

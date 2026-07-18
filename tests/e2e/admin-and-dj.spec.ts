@@ -19,11 +19,13 @@ test("owner creates a session and DJ reaches the ready screen", async ({ page, c
   const sessionName = `Saturday Night Relay ${Date.now()}`;
   await page.goto("/admin");
   await expect(page).toHaveTitle("Discus");
+  await expect(page.getByRole("link", { name: "Producer console" })).toHaveAttribute("href", "/admin");
   await page.getByLabel("Producer password").fill(ownerPassword);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("heading", { name: "Sessions" })).toBeVisible();
 
   await page.getByLabel("Session name").fill(sessionName);
+  await page.getByRole("switch", { name: "Record" }).click();
   await page.getByRole("button", { name: "Create session" }).click();
   const djUrl = await page.locator(".copy-row").filter({ hasText: "DJ invite" }).locator("code").textContent();
   const listenerUrl = await page.locator(".copy-row").filter({ hasText: "Listener invite" }).locator("code").textContent();
@@ -35,6 +37,7 @@ test("owner creates a session and DJ reaches the ready screen", async ({ page, c
   const listener = await listenerPagePromise;
   await expect(listener).toHaveURL(/\/listen$/);
   await expect(listener.getByRole("heading", { name: sessionName })).toBeVisible();
+  await expect(listener.getByRole("link", { name: "Producer console" })).toHaveAttribute("href", "/admin");
   await expect(listener.getByText("Waiting for DJ", { exact: true })).toBeVisible();
   await expect(listener.locator(".waiting-activity > span")).toHaveCount(3);
   await expect(listener.getByText("Listener invite", { exact: true })).toBeVisible();
@@ -49,6 +52,7 @@ test("owner creates a session and DJ reaches the ready screen", async ({ page, c
 
   const dj = await context.newPage();
   await dj.goto(djUrl!);
+  await expect(dj.getByRole("link", { name: "Producer console" })).toHaveAttribute("href", "/admin");
   await expect(dj.getByRole("heading", { name: "Choose your audio" })).toBeVisible();
   await expect(dj.getByRole("heading", { name: "First time? Start here." })).toBeVisible();
   const routingHelp = dj.getByRole("button", { name: "Playing music only from this Mac?" });
@@ -95,6 +99,15 @@ test("owner creates a session and DJ reaches the ready screen", async ({ page, c
   await dj.getByRole("button", { name: "Start broadcast" }).click();
   await expect(dj.locator(".broadcast-stage")).toHaveAttribute("data-page", "2");
   await expect(dj.getByRole("heading", { name: "You’re live" })).toBeVisible();
+  await expect(dj.getByText("Audience link", { exact: true })).toBeVisible();
+  await expect(dj.getByRole("link", { name: /\/s\// })).toHaveAttribute("href", /\/s\//);
+  await dj.getByRole("button", { name: "Copy link" }).click();
+  await expect(dj.getByRole("button", { name: "Copied" })).toBeVisible();
+  expect(await dj.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
+  await dj.screenshot({ path: "/tmp/dj-relay-broadcast-audience-link.png", fullPage: true });
+  await dj.setViewportSize({ width: 1600, height: 1100 });
+  expect(await dj.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
+  await dj.screenshot({ path: "/tmp/dj-relay-broadcast-audience-link-desktop.png", fullPage: true });
   await expect.poll(() => dj.locator(".broadcast-live-page").evaluate((page) => getComputedStyle(page).transitionDuration)).toContain("0.2s");
   await dj.reload();
   await expect(dj.getByRole("heading", { name: "Choose your audio" })).toBeVisible();
@@ -140,7 +153,7 @@ test("producer opts into recording and the original listener link becomes a repl
   await page.getByLabel("Producer password").fill(ownerPassword);
   await page.getByRole("button", { name: "Sign in" }).click();
   await page.getByLabel("Session name").fill(sessionName);
-  await page.getByRole("checkbox", { name: "Record this session" }).check();
+  await expect(page.getByRole("switch", { name: "Record" })).toHaveAttribute("aria-checked", "true");
   await page.getByRole("button", { name: "Create session" }).click();
   await expect(page.getByText("Recording enabled")).toBeVisible();
 
@@ -165,17 +178,20 @@ test("producer opts into recording and the original listener link becomes a repl
     body: JSON.stringify({
       recording: { requested: true, status: "ready", durationSeconds: 20.75, partCount: 2 },
       parts: [
-        { index: 0, start: "2026-07-17T20:00:00Z", durationSeconds: 12.5, url: "/api/session/recording/parts/0", downloadUrl: "/api/session/recording/parts/0?download=1" },
-        { index: 1, start: "2026-07-17T20:01:00Z", durationSeconds: 8.25, url: "/api/session/recording/parts/1", downloadUrl: "/api/session/recording/parts/1?download=1" },
+        { index: 0, start: "2026-07-17T20:00:00Z", durationSeconds: 12.5, url: "/api/session/recording/parts/0", downloadUrl: "/api/session/recording/parts/0?download=mp3" },
+        { index: 1, start: "2026-07-17T20:01:00Z", durationSeconds: 8.25, url: "/api/session/recording/parts/1", downloadUrl: "/api/session/recording/parts/1?download=mp3" },
       ],
     }),
   }));
   await replay.goto(listenerUrl!);
-  await expect(replay.getByText("Replay ready")).toBeVisible();
+  await expect(replay.getByRole("link", { name: "Producer console" })).toHaveAttribute("href", "/admin");
+  await expect(replay.getByText("This session has concluded. Recorded playback is ready.")).toBeVisible();
   await expect(replay.getByLabel(`${sessionName} recording part 1`)).toHaveAttribute("src", "/api/session/recording/parts/0");
   await expect(replay.getByText("Part 1 of 2 · reconnects continue automatically")).toBeVisible();
-  await expect(replay.getByRole("link", { name: "Download part 1" })).toHaveAttribute("href", "/api/session/recording/parts/0?download=1");
-  await expect(replay.getByRole("link", { name: "Download part 2" })).toHaveAttribute("href", "/api/session/recording/parts/1?download=1");
+  await expect(replay.getByRole("link", { name: "Download part 1 MP3" })).toHaveAttribute("href", "/api/session/recording/parts/0?download=mp3");
+  await expect(replay.getByRole("link", { name: "Download part 2 MP3" })).toHaveAttribute("href", "/api/session/recording/parts/1?download=mp3");
+  await replay.setViewportSize({ width: 1440, height: 900 });
+  await replay.screenshot({ path: "/tmp/dj-relay-concluded-session-mp3.png", fullPage: true });
   await replay.setViewportSize({ width: 390, height: 844 });
   expect(await replay.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
 
@@ -189,22 +205,17 @@ test("producer opts into recording and the original listener link becomes a repl
     ...archived,
     recording: { requested: true, status: "ready", durationSeconds: 20.75, partCount: 2 },
   };
-  let recordingDeleted = false;
+  let sessionDeleted = false;
   await page.route("**/api/admin/sessions?*", (route) => route.fulfill({
     contentType: "application/json",
     body: JSON.stringify({
-      sessions: [{
-        ...archiveSession,
-        recording: recordingDeleted
-          ? { requested: true, status: "deleted", durationSeconds: null, partCount: 0 }
-          : archiveSession.recording,
-      }],
-      history: { loaded: 1, total: 1, hasMore: false },
+      sessions: sessionDeleted ? [] : [archiveSession],
+      history: { loaded: sessionDeleted ? 0 : 1, total: sessionDeleted ? 0 : 1, hasMore: false },
     }),
   }));
-  await page.route("**/api/admin/recordings/*", (route) => {
+  await page.route("**/api/admin/sessions/*", (route) => {
     if (route.request().method() === "DELETE") {
-      recordingDeleted = true;
+      sessionDeleted = true;
       return route.fulfill({ status: 204 });
     }
     return route.continue();
@@ -212,12 +223,19 @@ test("producer opts into recording and the original listener link becomes a repl
   await page.reload();
   const archiveRow = page.locator(".session-row").filter({ hasText: sessionName });
   await expect(archiveRow).toContainText("recording ready · 0:21 · 2 parts");
-  await expect(archiveRow.getByRole("link", { name: "Open session" }))
+  await expect(archiveRow.getByRole("link", { name: `Open ${sessionName} listener page` }))
     .toHaveAttribute("href", new RegExp(`/api/admin/sessions/${archiveSession.id}/listen$`));
-  page.once("dialog", (dialog) => dialog.accept());
-  await archiveRow.getByRole("button", { name: "Delete recording" }).click();
-  await expect(archiveRow).toContainText("recording deleted");
   await expect(archiveRow.getByRole("link", { name: "Open session" })).toHaveCount(0);
+  const deleteSessionButton = archiveRow.getByRole("button", { name: `Delete session ${sessionName}` });
+  await expect(deleteSessionButton).toHaveAttribute("title", "Delete session");
+  await expect(deleteSessionButton.locator("svg")).toHaveCount(1);
+  expect((await deleteSessionButton.textContent())?.trim()).toBe("");
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
+  await page.screenshot({ path: "/tmp/dj-relay-session-delete.png", fullPage: true });
+  page.once("dialog", (dialog) => dialog.accept());
+  await deleteSessionButton.click();
+  await expect(archiveRow).toHaveCount(0);
   await dj.close();
   await replay.close();
 });
@@ -304,6 +322,7 @@ test("inactive session history loads in batches near the viewport", async ({ pag
 
 test("invalid invite fails clearly", async ({ page }) => {
   await page.goto("/s/not-a-real-invite");
+  await expect(page.getByRole("link", { name: "Producer console" })).toHaveAttribute("href", "/admin");
   await expect(page.getByRole("heading", { name: "Invite unavailable" })).toBeVisible();
   await expect(page.getByText("This invite is invalid, expired, or ended")).toBeVisible();
 });

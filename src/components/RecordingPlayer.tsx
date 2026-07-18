@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import { Tag } from "antd";
 import { sessionApi } from "../api";
 import type { RecordingResponse } from "../types";
 import { InlineNotice } from "./InlineNotice";
@@ -53,7 +52,7 @@ export function RecordingPlayer({ sessionName }: { sessionName: string }) {
     <section className="recording-player" aria-labelledby="recording-player-title">
       <div className="recording-player-heading">
         <div>
-          <Tag className="recording-ready-tag" color="success">Replay ready</Tag>
+          <p className="recording-ready-copy">This session has concluded. Recorded playback is ready.</p>
           <h2 id="recording-player-title">{sessionName}</h2>
         </div>
         <span>{data.recording.durationSeconds === null ? "" : formatDuration(data.recording.durationSeconds)}</span>
@@ -62,6 +61,7 @@ export function RecordingPlayer({ sessionName }: { sessionName: string }) {
         key={part.url}
         className="archive-audio-player"
         controls
+        controlsList="nodownload"
         autoPlay={partIndex > 0}
         src={part.url}
         aria-label={`${sessionName} recording${data.parts.length > 1 ? ` part ${partIndex + 1}` : ""}`}
@@ -77,7 +77,7 @@ export function RecordingPlayer({ sessionName }: { sessionName: string }) {
         <div>
           {data.parts.map((recordingPart) => (
             <a className="recording-download-link" href={recordingPart.downloadUrl} download key={recordingPart.index}>
-              {data.parts.length > 1 ? `Download part ${recordingPart.index + 1}` : "Download MP4"}
+              {data.parts.length > 1 ? `Download part ${recordingPart.index + 1} MP3` : "Download MP3"}
             </a>
           ))}
         </div>

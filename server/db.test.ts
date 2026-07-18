@@ -58,7 +58,7 @@ describe("SessionStore migrations and lifecycle", () => {
     }
   });
 
-  it("creates durable recording paths and pages only non-deleted recording sessions", () => {
+  it("removes session rows and cascades their listener history", () => {
     const store = new SessionStore(":memory:");
     try {
       const unrecorded = store.create("Unrecorded", 4);
@@ -70,9 +70,14 @@ describe("SessionStore migrations and lifecycle", () => {
       store.setState(recorded.id, "live");
       expect(store.listRecordingPage(10).sessions.map((session) => session.id)).toEqual([recorded.id]);
       store.setState(recorded.id, "ended");
-      store.markRecordingDeleted(recorded.id, new Date("2026-07-17T12:00:00.000Z"));
-      expect(store.get(recorded.id)?.recordingDeletedAt).toBe("2026-07-17T12:00:00.000Z");
+      store.recordListener(recorded.id, "listener-browser");
+      expect(store.uniqueListenerCount(recorded.id)).toBe(1);
+
+      expect(store.remove(recorded.id)).toBe(true);
+      expect(store.get(recorded.id)).toBeNull();
+      expect(store.uniqueListenerCount(recorded.id)).toBe(0);
       expect(store.listRecordingPage(10).sessions).toHaveLength(0);
+      expect(store.remove(recorded.id)).toBe(false);
     } finally {
       store.close();
     }
