@@ -31,6 +31,12 @@ test("owner creates a session and DJ reaches the ready screen", async ({ page, c
   const listenerUrl = await page.locator(".copy-row").filter({ hasText: "Listener invite" }).locator("code").textContent();
   expect(djUrl).toBeTruthy();
   expect(listenerUrl).toBeTruthy();
+  const djInviteCopyButton = page.locator(".copy-row").filter({ hasText: "DJ invite" }).getByRole("button", { name: "Copy" });
+  await expect(djInviteCopyButton.locator(".t-icon-swap")).toHaveAttribute("data-state", "a");
+  await djInviteCopyButton.click();
+  const copiedDjInviteButton = page.locator(".copy-row").filter({ hasText: "DJ invite" }).getByRole("button", { name: "Link copied" });
+  await expect(copiedDjInviteButton).toBeVisible();
+  await expect(copiedDjInviteButton.locator(".t-icon-swap")).toHaveAttribute("data-state", "b");
 
   const listenerPagePromise = context.waitForEvent("page");
   await page.getByRole("link", { name: `Open ${sessionName} listener page` }).click();
@@ -43,8 +49,11 @@ test("owner creates a session and DJ reaches the ready screen", async ({ page, c
   await expect(listener.getByText("Share session", { exact: true })).toBeVisible();
   await expect(listener.getByRole("link", { name: /\/s\// })).toHaveAttribute("href", /\/s\//);
   await expect(listener.getByRole("button", { name: "Copy link" })).toBeVisible();
-  await listener.getByRole("button", { name: "Copy link" }).click();
-  await expect(listener.getByRole("button", { name: "Copied" })).toBeVisible();
+  const listenerShareButton = listener.getByRole("button", { name: "Copy link" });
+  await expect(listenerShareButton.locator(".t-icon-swap")).toHaveAttribute("data-state", "a");
+  await listenerShareButton.click();
+  await expect(listener.getByRole("button", { name: "Link copied" })).toBeVisible();
+  await expect(listener.getByRole("button", { name: "Link copied" }).locator(".t-icon-swap")).toHaveAttribute("data-state", "b");
   await listener.setViewportSize({ width: 390, height: 844 });
   expect(await listener.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
   await listener.screenshot({ path: "/tmp/dj-relay-listener-share.png", fullPage: true });
@@ -102,7 +111,7 @@ test("owner creates a session and DJ reaches the ready screen", async ({ page, c
   await expect(dj.getByText("Audience link", { exact: true })).toBeVisible();
   await expect(dj.getByRole("link", { name: /\/s\// })).toHaveAttribute("href", /\/s\//);
   await dj.getByRole("button", { name: "Copy link" }).click();
-  await expect(dj.getByRole("button", { name: "Copied" })).toBeVisible();
+  await expect(dj.getByRole("button", { name: "Link copied" })).toBeVisible();
   expect(await dj.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
   await dj.screenshot({ path: "/tmp/dj-relay-broadcast-audience-link.png", fullPage: true });
   await dj.setViewportSize({ width: 1600, height: 1100 });
@@ -197,10 +206,14 @@ test("producer opts into recording and the original listener link becomes a repl
   await downloadPartsButton.click();
   await expect(replay.getByRole("link", { name: "Download part 1 MP3" })).not.toBeVisible();
   const shareReplayButton = replayActions.getByRole("button", { name: "Copy session link" });
-  await expect(shareReplayButton.locator("svg")).toHaveCount(1);
+  await expect(shareReplayButton.locator("svg")).toHaveCount(2);
+  await expect(shareReplayButton.locator(".t-icon-swap")).toHaveAttribute("data-state", "a");
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await shareReplayButton.click();
-  await expect(replayActions.getByRole("button", { name: "Session link copied" })).toBeVisible();
+  const copiedReplayButton = replayActions.getByRole("button", { name: "Link copied" });
+  await expect(copiedReplayButton).toBeVisible();
+  await expect(copiedReplayButton.locator(".t-icon-swap")).toHaveAttribute("data-state", "b");
+  await expect(replay.getByText("Link copied", { exact: true })).toBeVisible();
   const sharedReplayUrl = await replay.evaluate(() => navigator.clipboard.readText());
   expect(sharedReplayUrl).toMatch(/\/s\/[A-Za-z0-9_.-]+$/);
   const sharedReplay = await context.newPage();

@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { Button } from "antd";
+import { Button, Tooltip } from "antd";
 import { Check, CopySimple, ShareNetwork } from "@phosphor-icons/react";
 import { sessionApi } from "../api";
 import { copyText } from "../clipboard";
@@ -57,20 +57,23 @@ export function SessionShare({
   }
 
   if (variant === "icon") {
-    const label = copied ? "Session link copied" : error || "Copy session link";
+    const label = copied ? "Link copied" : error || "Copy session link";
     return (
-      <Button
-        className={`session-share-icon-button ${className}`.trim()}
-        disabled={!shareUrl}
-        loading={!shareUrl && !error}
-        aria-label={label}
-        title={label}
-        onClick={() => void copyShareLink()}
-      >
-        {copied
-          ? <Check size={19} weight="bold" aria-hidden="true" />
-          : <ShareNetwork size={19} weight="bold" aria-hidden="true" />}
-      </Button>
+      <Tooltip title="Link copied" open={copied} placement="bottomRight">
+        <Button
+          className={`session-share-icon-button ${className}`.trim()}
+          disabled={!shareUrl}
+          loading={!shareUrl && !error}
+          aria-label={label}
+          title={copied ? undefined : label}
+          onClick={() => void copyShareLink()}
+        >
+          <span className="t-icon-swap" data-state={copied ? "b" : "a"} aria-hidden="true">
+            <ShareNetwork className="t-icon" data-icon="a" size={19} weight="bold" />
+            <Check className="t-icon" data-icon="b" size={19} weight="bold" />
+          </span>
+        </Button>
+      </Tooltip>
     );
   }
 
@@ -84,8 +87,11 @@ export function SessionShare({
             <span>{description}</span>
           </div>
           <Button className="copy-button listener-copy-button" onClick={() => void copyShareLink()}>
-            <CopySimple size={18} weight="bold" aria-hidden="true" />
-            <AnimatedText value={copied ? "Copied" : "Copy link"} />
+            <span className="t-icon-swap" data-state={copied ? "b" : "a"} aria-hidden="true">
+              <CopySimple className="t-icon" data-icon="a" size={18} weight="bold" />
+              <Check className="t-icon" data-icon="b" size={18} weight="bold" />
+            </span>
+            <AnimatedText value={copied ? "Link copied" : "Copy link"} />
           </Button>
         </section>
       )}

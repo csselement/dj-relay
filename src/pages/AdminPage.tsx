@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, Card, Empty, Input, Tag } from "antd";
-import { Trash } from "@phosphor-icons/react";
+import { Check, CopySimple, Trash } from "@phosphor-icons/react";
 import { api } from "../api";
+import { copyText } from "../clipboard";
 import { AnimatedText } from "../components/AnimatedText";
 import { AppShell } from "../components/AppShell";
 import { InlineNotice } from "../components/InlineNotice";
@@ -319,15 +320,26 @@ export function sessionCarriesRecording(session: RelaySession): boolean {
 
 function CopyLink({ label, value }: { label: string; value: string }) {
   const [copied, setCopied] = useState(false);
+  const copiedTimerRef = useRef<number>(undefined);
+
+  useEffect(() => () => window.clearTimeout(copiedTimerRef.current), []);
+
   async function copy() {
-    await navigator.clipboard.writeText(value);
+    await copyText(value);
     setCopied(true);
-    window.setTimeout(() => setCopied(false), 1500);
+    window.clearTimeout(copiedTimerRef.current);
+    copiedTimerRef.current = window.setTimeout(() => setCopied(false), 1500);
   }
   return (
     <div className="copy-row">
       <div><strong>{label}</strong><code>{value}</code></div>
-      <Button className="copy-button" onClick={() => void copy()}><AnimatedText value={copied ? "Copied" : "Copy"} /></Button>
+      <Button className="copy-button" onClick={() => void copy()}>
+        <span className="t-icon-swap" data-state={copied ? "b" : "a"} aria-hidden="true">
+          <CopySimple className="t-icon" data-icon="a" size={17} weight="bold" />
+          <Check className="t-icon" data-icon="b" size={17} weight="bold" />
+        </span>
+        <AnimatedText value={copied ? "Link copied" : "Copy"} />
+      </Button>
     </div>
   );
 }

@@ -862,6 +862,13 @@ h2 { letter-spacing: -.025em; }
   font-weight: 680;
   transition: transform 180ms cubic-bezier(.16, 1, .3, 1), background-color 180ms cubic-bezier(.16, 1, .3, 1);
 }
+.copy-row .copy-button {
+  min-width: 112px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
 .copy-row .copy-button:hover { border-color: var(--field-border); background: var(--surface-subtle); color: var(--ink); }
 .copy-row .copy-button:active, .small-danger-button:active { transform: scale(.97); }
 .session-list { margin-top: 28px; border-top: 1px solid var(--border); }
