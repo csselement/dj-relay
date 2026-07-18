@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { RelaySession } from "../types";
-import { defaultSessionName, recordingArchiveLabel, sessionAudienceLabel } from "./AdminPage";
+import {
+  defaultSessionName,
+  recordingArchiveLabel,
+  sessionAudienceLabel,
+  sessionCarriesRecording,
+} from "./AdminPage";
 
 const session: RelaySession = {
   id: "session-1",
@@ -60,5 +65,28 @@ describe("recordingArchiveLabel", () => {
       state: "ended",
       recording: { requested: true, status: "finalizing", durationSeconds: null, partCount: 0 },
     })).toBe(" · recording finalizing");
+  });
+});
+
+describe("sessionCarriesRecording", () => {
+  it.each(["scheduled", "recording", "finalizing", "ready"] as const)("shows the recording badge for %s sessions", (status) => {
+    expect(sessionCarriesRecording({
+      ...session,
+      recording: { requested: true, status, durationSeconds: null, partCount: 0 },
+    })).toBe(true);
+  });
+
+  it.each(["off", "deleted", "unavailable"] as const)("hides the recording badge for %s sessions", (status) => {
+    expect(sessionCarriesRecording({
+      ...session,
+      recording: { requested: true, status, durationSeconds: null, partCount: 0 },
+    })).toBe(false);
+  });
+
+  it("requires recording to have been requested", () => {
+    expect(sessionCarriesRecording({
+      ...session,
+      recording: { requested: false, status: "ready", durationSeconds: 80, partCount: 1 },
+    })).toBe(false);
   });
 });

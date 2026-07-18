@@ -5,6 +5,7 @@ export type TokenPayload = {
   role?: "dj" | "listener";
   sessionId?: string;
   listenerId?: string;
+  producerPreview?: boolean;
   path?: string;
   exp: number;
 };

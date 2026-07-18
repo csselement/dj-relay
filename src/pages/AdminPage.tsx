@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button, Card, Checkbox, Empty, Input, Tag } from "antd";
+import { Button, Card, Empty, Input, Tag } from "antd";
 import { api } from "../api";
 import { AnimatedText } from "../components/AnimatedText";
 import { AppShell } from "../components/AppShell";
@@ -48,7 +48,8 @@ export function AdminPage() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [password, setPassword] = useState("");
   const [name, setName] = useState(defaultSessionName);
-  const [recordingRequested, setRecordingRequested] = useState(false);
+  const [recordingRequested, setRecordingRequested] = useState(true);
+  const [recordingToggleInitialized, setRecordingToggleInitialized] = useState(false);
   const [sessions, setSessions] = useState<RelaySession[]>([]);
   const [created, setCreated] = useState<CreatedLinks | null>(null);
   const [error, setError] = useState("");
@@ -185,9 +186,24 @@ export function AdminPage() {
               <label className="field-label" htmlFor="session-name">Session name</label>
               <Input id="session-name" value={name} onChange={(event) => setName(event.target.value)} minLength={2} maxLength={80} required />
             </div>
-            <Checkbox checked={recordingRequested} onChange={(event) => setRecordingRequested(event.target.checked)}>
-              Record this session
-            </Checkbox>
+            <div className="recording-toggle-field">
+              <button
+                className={`t-toggle recording-toggle${recordingToggleInitialized ? " is-init" : ""}`}
+                type="button"
+                role="switch"
+                aria-checked={recordingRequested}
+                aria-labelledby="record-session-label"
+                data-on={recordingRequested ? "true" : "false"}
+                disabled={busy === "create"}
+                onClick={() => {
+                  setRecordingToggleInitialized(true);
+                  setRecordingRequested((current) => !current);
+                }}
+              >
+                <span className="t-toggle-thumb" aria-hidden="true" />
+              </button>
+              <span id="record-session-label">Record</span>
+            </div>
             <Button className="primary-button success-button" type="primary" htmlType="submit" loading={busy === "create"}>{busy === "create" ? "Creating…" : "Create session"}</Button>
           </form>
         </Card>
@@ -214,23 +230,34 @@ export function AdminPage() {
           {sessions.map((session) => {
             const active = session.state !== "ended" && session.state !== "expired";
             const recordingLabel = recordingArchiveLabel(session);
-            const sessionDetails = <><h3>{session.name}</h3><p>{session.state} · {sessionAudienceLabel(session)}{recordingLabel} · expires {new Date(session.expiresAt).toLocaleString()}</p></>;
             const recordingReady = !active && session.recording.status === "ready";
-            const recordingDeletable = !active && session.recording.requested &&
-              session.recording.status !== "deleted" && session.recording.status !== "finalizing";
-            return (
-              <article className={`session-row ${active ? "is-active" : "is-history"}`} key={session.id}>
-                {active ? (
+            const sessionDetails = (
+              <>
+                <h3 className="session-row-title">
                   <a
-                    className="session-row-link"
+                    className="session-title-link"
                     href={`/api/admin/sessions/${session.id}/listen`}
                     target="_blank"
                     rel="noreferrer"
                     aria-label={`Open ${session.name} listener page`}
                   >
-                    {sessionDetails}
+                    {session.name}
                   </a>
-                ) : <div className="session-row-copy">{sessionDetails}</div>}
+                  {sessionCarriesRecording(session) && (
+                    <span className="session-recording-badge" aria-label="Recording attached" title="Recording attached">
+                      <span className="session-recording-badge-dot" aria-hidden="true" />
+                      <span aria-hidden="true">REC</span>
+                    </span>
+                  )}
+                </h3>
+                <p>{session.state} · {sessionAudienceLabel(session)}{recordingLabel} · expires {new Date(session.expiresAt).toLocaleString()}</p>
+              </>
+            );
+            const recordingDeletable = !active && session.recording.requested &&
+              session.recording.status !== "deleted" && session.recording.status !== "finalizing";
+            return (
+              <article className={`session-row ${active ? "is-active" : "is-history"}`} key={session.id}>
+                <div className="session-row-copy">{sessionDetails}</div>
                 <div className="session-row-actions">
                   {active && <Button className="small-danger-button" danger loading={endingId === session.id} onClick={() => void endSession(session.id)}>{endingId === session.id ? "Ending…" : "End"}</Button>}
                   {recordingReady && (
@@ -281,6 +308,10 @@ export function recordingArchiveLabel(session: RelaySession): string {
   }
   const partLabel = session.recording.partCount === 1 ? "1 part" : `${session.recording.partCount} parts`;
   return ` · recording ready · ${formatRecordingDuration(session.recording.durationSeconds)} · ${partLabel}`;
+}
+
+export function sessionCarriesRecording(session: RelaySession): boolean {
+  return session.recording.requested && ["scheduled", "recording", "finalizing", "ready"].includes(session.recording.status);
 }
 
 function CopyLink({ label, value }: { label: string; value: string }) {

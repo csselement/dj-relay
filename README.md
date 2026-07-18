@@ -8,14 +8,14 @@ Discus is a private, browser-based stereo audio relay for remote DJs. It publish
 - WHIP/WHEP streaming through MediaMTX
 - Stereo input metering and audio-device selection
 - Live and historical listener counts
-- Opt-in server-side session recording with private, multi-part replay
+- Optional server-side session recording with private, multi-part replay
 - Dark-only responsive interface
 - Listener jitter buffering for steadier playback
 - Docker deployment with Caddy-managed HTTPS
 
 ## Screenshot
 
-![Discus owner console showing session creation and session history](docs/images/discus-admin.jpg)
+![Discus producer console showing session creation and session history](docs/images/discus-admin.jpg)
 
 ## Development
 
@@ -59,7 +59,7 @@ Keep the application and MediaMTX administration ports private. Caddy obtains th
 
 ### Session recordings
 
-Producers can enable **Record this session** while creating a session. The setting is off by default and cannot be enabled after creation. Recording-enabled sessions use MediaMTX's native fMP4 recorder and keep the existing 192 kbps stereo Opus relay without transcoding. DJs and listeners see a recording disclosure while the broadcast is active.
+Producers can toggle **Record** while creating a session. Recording is selected by default in the producer console, and the choice cannot be changed after creation. Recording-enabled sessions use MediaMTX's native fMP4 recorder and keep the existing 192 kbps stereo Opus relay without transcoding. DJs and listeners see a recording disclosure while the broadcast is active.
 
 When the broadcast ends, its original listener link becomes private replay access. Reconnects appear as ordered recording parts and the player advances through them without filling gaps. Ready recordings remain in the main producer session history, where the producer can reopen the session, play it in the browser, download each MP4 part, or permanently delete it.
 

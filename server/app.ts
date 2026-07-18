@@ -80,7 +80,7 @@ function requireInvite(config: AppConfig, store: SessionStore) {
     const payload = invitePayload(req, config);
     if (!payload?.sessionId || !payload.role) return sendError(res, 401, "Invite link required");
     const session = store.get(payload.sessionId);
-    if (!session || (session.state === "expired" && !isReplaySession(session))) {
+    if (!session || (session.state === "expired" && !isReplaySession(session) && !payload.producerPreview)) {
       return sendError(res, 410, "This session has expired");
     }
     res.locals.invite = payload;
@@ -277,17 +277,14 @@ export function createApp({
   app.get("/api/admin/sessions/:id/listen", requireAdmin(config), (req, res) => {
     const session = store.get(String(req.params.id));
     if (!session) return sendError(res, 404, "Session not found");
-    const replay = isReplaySession(session);
-    if ((session.state === "ended" || session.state === "expired") && !replay) {
-      return sendError(res, 410, "This session is no longer active");
-    }
-
-    const exp = replay ? expiresIn(12 * 60 * 60) : Math.floor(new Date(session.expiresAt).getTime() / 1000);
+    const archived = session.state === "ended" || session.state === "expired";
+    const exp = archived ? expiresIn(12 * 60 * 60) : Math.floor(new Date(session.expiresAt).getTime() / 1000);
     const cookie = signToken({
       kind: "invite",
       role: "listener",
       sessionId: session.id,
       listenerId: randomUUID(),
+      producerPreview: true,
       exp,
     }, config.tokenSecret);
     res.cookie(INVITE_COOKIE, cookie, cookieOptions(config, Math.max(0, exp * 1000 - Date.now())));

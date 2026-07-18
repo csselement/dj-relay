@@ -129,6 +129,12 @@
   --icon-swap-start-scale: .9;
   --accordion-dur: 220ms;
   --accordion-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --toggle-dur: 350ms;
+  --toggle-travel: 14.66px;
+  --toggle-ov1: 1px;
+  --toggle-ov2: 0px;
+  --toggle-track: 0ms;
+  --toggle-ease: cubic-bezier(0.34, 1.35, 0.64, 1);
 }
 
 * { box-sizing: border-box; }
@@ -225,6 +231,29 @@ a { color: inherit; }
   opacity: 0;
   filter: blur(var(--icon-swap-blur));
   transform: scale(var(--icon-swap-start-scale));
+}
+
+/* Transitions.dev — Toggle */
+.t-toggle { transition: background var(--toggle-track) var(--toggle-ease); }
+.t-toggle-thumb { translate: 0 0; will-change: translate; }
+.t-toggle[data-on="true"] .t-toggle-thumb { translate: var(--toggle-travel) 0; }
+.t-toggle.is-init[data-on="true"] .t-toggle-thumb { animation: t-toggle-on var(--toggle-dur) var(--toggle-ease) both; }
+.t-toggle.is-init[data-on="false"] .t-toggle-thumb { animation: t-toggle-off var(--toggle-dur) var(--toggle-ease) both; }
+@keyframes t-toggle-on {
+  0% { translate: 0 0; }
+  55% { translate: calc(var(--toggle-travel) + var(--toggle-ov1)) 0; }
+  80% { translate: calc(var(--toggle-travel) - var(--toggle-ov2)) 0; }
+  100% { translate: var(--toggle-travel) 0; }
+}
+@keyframes t-toggle-off {
+  0% { translate: var(--toggle-travel) 0; }
+  55% { translate: calc(0px - var(--toggle-ov1)) 0; }
+  80% { translate: var(--toggle-ov2) 0; }
+  100% { translate: 0 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-toggle-thumb { animation: none !important; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -742,13 +771,53 @@ h2 { letter-spacing: -.025em; }
 }
 .create-session-card .ant-card-body { padding: 24px; }
 .create-session {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(280px, 1fr) auto minmax(168px, auto);
   gap: 16px;
   align-items: center;
+  padding-top: 26px;
 }
-.create-session .session-name-field { align-self: end; }
-.create-session .ant-checkbox-wrapper { color: var(--ink); font-size: 14px; font-weight: 640; white-space: nowrap; }
+.create-session .session-name-field { display: contents; }
+.create-session .session-name-field .field-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+.create-session .session-name-field .ant-input {
+  grid-column: 1;
+  min-height: 50px;
+}
+.recording-toggle-field {
+  min-height: 50px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 640;
+  white-space: nowrap;
+}
+.recording-toggle {
+  width: 36.66px;
+  min-width: 36.66px;
+  height: 22px;
+  display: block;
+  padding: 3px;
+  border: 1px solid var(--field-border);
+  border-radius: 999px;
+  background: var(--surface-subtle);
+}
+.recording-toggle[data-on="true"] { border-color: var(--accent); background: var(--accent); }
+.recording-toggle:disabled { cursor: not-allowed; opacity: .55; }
+.recording-toggle .t-toggle-thumb {
+  width: 14px;
+  height: 14px;
+  display: block;
+  border-radius: 50%;
+  background: var(--muted-strong);
+}
+.recording-toggle[data-on="true"] .t-toggle-thumb { background: var(--accent-action-text); }
 .create-session .ant-btn.primary-button { width: auto; min-height: 50px; padding-inline: 22px; font-size: 15px; white-space: nowrap; }
 .link-panel {
   margin-top: 18px;
@@ -806,15 +875,45 @@ h2 { letter-spacing: -.025em; }
   content-visibility: auto;
   contain-intrinsic-size: auto 86px;
 }
-.session-row-link {
+.session-title-link {
   min-width: 0;
   border-radius: 5px;
   color: inherit;
   text-decoration: none;
+  transition: color 180ms cubic-bezier(.16, 1, .3, 1), transform 180ms cubic-bezier(.16, 1, .3, 1);
 }
-.session-row-link:hover h3 { text-decoration: underline; text-decoration-color: var(--link-underline); text-underline-offset: 4px; }
-.session-row-link:active { transform: translateY(1px); }
+.session-title-link:hover { color: var(--accent); text-decoration: underline; text-decoration-color: var(--link-underline); text-underline-offset: 4px; }
+.session-title-link:active { transform: translateY(1px); }
+.session-title-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 4px; }
 .session-row h3 { margin-bottom: 5px; font-size: 17px; letter-spacing: -.015em; }
+.session-row-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.session-row-title > span:first-child { min-width: 0; }
+.session-recording-badge {
+  min-height: 18px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: 1px solid var(--success-panel-border);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 9px;
+  font-weight: 780;
+  letter-spacing: .08em;
+  line-height: 1;
+}
+.session-recording-badge-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
 .session-row p { margin: 0; color: var(--muted); font-size: 13px; }
 .session-row-actions { display: flex; justify-content: flex-end; gap: 10px; }
 .session-row-actions .ant-btn { min-height: 38px; }
@@ -899,9 +998,10 @@ h2 { letter-spacing: -.025em; }
   50% { opacity: 1; transform: scale(1); }
 }
 
-@media (max-width: 880px) {
+@media (max-width: 760px) {
   .create-session { grid-template-columns: minmax(0, 1fr) 180px; }
-  .create-session .session-name-field { grid-column: 1 / -1; }
+  .create-session .session-name-field .ant-input { grid-column: 1 / -1; }
+  .recording-toggle-field { grid-column: 1; }
   .create-session .ant-btn.primary-button { width: 100%; }
 }
 
@@ -926,12 +1026,13 @@ h2 { letter-spacing: -.025em; }
   .admin-heading { grid-template-columns: 1fr; gap: 14px; margin-bottom: 24px; }
   .health-dot { width: max-content; margin-top: 0; }
   .create-session { grid-template-columns: minmax(0, 1fr); }
+  .create-session .session-name-field .ant-input,
+  .recording-toggle-field { grid-column: 1; }
   .create-session-card .ant-card-body, .link-panel .ant-card-body { padding: 20px; }
   .create-session .ant-btn.primary-button { grid-column: auto; }
   .copy-row { gap: 12px; }
   .session-row { align-items: start; }
   .session-row-copy { display: contents; }
-  .session-row-link { grid-column: 1; grid-row: 1 / 3; padding-top: 7px; }
   .session-row h3 { margin: 0 0 5px; }
   .session-row-copy h3 { grid-column: 1 / -1; grid-row: 1; padding-top: 7px; }
   .session-row-copy p { grid-column: 1 / -1; grid-row: 2; }

@@ -135,7 +135,7 @@ describe("Discus API", () => {
     });
   });
 
-  it("lets an authenticated owner open an active session as a listener", async () => {
+  it("lets an authenticated producer open active and archived sessions in the listener module", async () => {
     const { app, store } = testApp(); stores.push(store);
     const owner = request.agent(app);
     await owner.post("/api/admin/login").send({ password: "owner-test-password" });
@@ -150,7 +150,20 @@ describe("Discus API", () => {
     });
 
     await owner.post(`/api/admin/sessions/${sessionId}/end`).expect(200);
-    await owner.get(`/api/admin/sessions/${sessionId}/listen`).expect(410);
+    await owner.get(`/api/admin/sessions/${sessionId}/listen`).expect(302).expect("Location", "/listen");
+    await owner.get("/api/session").expect(200).expect(({ body }) => {
+      expect(body.role).toBe("listener");
+      expect(body.session).toMatchObject({ id: sessionId, state: "ended" });
+    });
+
+    const expired = await owner.post("/api/admin/sessions").send({ name: "Expired producer preview", expiresInHours: 4 });
+    store.db.prepare("UPDATE sessions SET expires_at = ? WHERE id = ?")
+      .run(new Date(Date.now() - 1_000).toISOString(), expired.body.session.id);
+    await owner.get(`/api/admin/sessions/${expired.body.session.id}/listen`).expect(302).expect("Location", "/listen");
+    await owner.get("/api/session").expect(200).expect(({ body }) => {
+      expect(body.role).toBe("listener");
+      expect(body.session).toMatchObject({ id: expired.body.session.id, state: "expired" });
+    });
   });
 
   it("exchanges invites and limits media actions by role and path", async () => {
