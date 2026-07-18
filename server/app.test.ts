@@ -407,5 +407,24 @@ describe("Discus API", () => {
       expect(body).toMatchObject({ role: "listener", destination: "/listen" });
       expect(body.session.id).toBe(created.body.session.id);
     });
+
+    await owner.post(`/api/admin/sessions/${created.body.session.id}/end`).expect(200);
+
+    const liveLinkAfterConclusion = request.agent(app);
+    await liveLinkAfterConclusion.post("/api/invite/exchange").send({ token: sharedToken }).expect(200).expect(({ body }) => {
+      expect(body).toMatchObject({ role: "listener", destination: "/listen" });
+      expect(body.session).toMatchObject({ id: created.body.session.id, state: "ended" });
+    });
+
+    const concludedShared = await listener.post("/api/session/share-link").expect(200);
+    const concludedToken = concludedShared.body.url.split("/").at(-1);
+    const concludedInvitedListener = request.agent(app);
+    await concludedInvitedListener.post("/api/invite/exchange").send({ token: concludedToken }).expect(200).expect(({ body }) => {
+      expect(body).toMatchObject({ role: "listener", destination: "/listen" });
+      expect(body.session).toMatchObject({ id: created.body.session.id, state: "ended" });
+    });
+
+    await request(app).post("/api/invite/exchange").send({ token: listenerToken }).expect(200);
+    await request(app).post("/api/invite/exchange").send({ token: djToken }).expect(404);
   });
 });

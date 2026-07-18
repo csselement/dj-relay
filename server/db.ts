@@ -308,9 +308,7 @@ export class SessionStore {
 
     const session = mapSession(row);
     const role = row.dj_token_hash === hash ? "dj" : "listener";
-    const replayEligible = session.recordingRequested &&
-      (session.state === "expired" || session.state === "ended") && role === "listener";
-    if ((session.state === "expired" || session.state === "ended") && !replayEligible) return null;
+    if ((session.state === "expired" || session.state === "ended") && role === "dj") return null;
     return { session, role };
   }
 

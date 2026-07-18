@@ -40,7 +40,7 @@ test("owner creates a session and DJ reaches the ready screen", async ({ page, c
   await expect(listener.getByRole("link", { name: "Producer console" })).toHaveAttribute("href", "/admin");
   await expect(listener.getByText("Waiting for DJ", { exact: true })).toBeVisible();
   await expect(listener.locator(".waiting-activity > span")).toHaveCount(3);
-  await expect(listener.getByText("Listener invite", { exact: true })).toBeVisible();
+  await expect(listener.getByText("Share session", { exact: true })).toBeVisible();
   await expect(listener.getByRole("link", { name: /\/s\// })).toHaveAttribute("href", /\/s\//);
   await expect(listener.getByRole("button", { name: "Copy link" })).toBeVisible();
   await listener.getByRole("button", { name: "Copy link" }).click();
@@ -188,12 +188,31 @@ test("producer opts into recording and the original listener link becomes a repl
   await expect(replay.getByText("This session has concluded. Recorded playback is ready.")).toBeVisible();
   await expect(replay.getByLabel(`${sessionName} recording part 1`)).toHaveAttribute("src", "/api/session/recording/parts/0");
   await expect(replay.getByText("Part 1 of 2 · reconnects continue automatically")).toBeVisible();
+  const replayActions = replay.getByLabel("Session actions");
+  const downloadPartsButton = replayActions.getByRole("button", { name: "Download recording MP3 parts" });
+  await expect(downloadPartsButton.locator("svg")).toHaveCount(1);
+  await downloadPartsButton.click();
   await expect(replay.getByRole("link", { name: "Download part 1 MP3" })).toHaveAttribute("href", "/api/session/recording/parts/0?download=mp3");
   await expect(replay.getByRole("link", { name: "Download part 2 MP3" })).toHaveAttribute("href", "/api/session/recording/parts/1?download=mp3");
+  await downloadPartsButton.click();
+  await expect(replay.getByRole("link", { name: "Download part 1 MP3" })).not.toBeVisible();
+  const shareReplayButton = replayActions.getByRole("button", { name: "Copy session link" });
+  await expect(shareReplayButton.locator("svg")).toHaveCount(1);
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await shareReplayButton.click();
+  await expect(replayActions.getByRole("button", { name: "Session link copied" })).toBeVisible();
+  const sharedReplayUrl = await replay.evaluate(() => navigator.clipboard.readText());
+  expect(sharedReplayUrl).toMatch(/\/s\/[A-Za-z0-9_.-]+$/);
+  const sharedReplay = await context.newPage();
+  await sharedReplay.goto(sharedReplayUrl);
+  await expect(sharedReplay).toHaveURL(/\/listen$/);
+  await expect(sharedReplay.getByRole("button", { name: "Copy session link" })).toBeVisible();
+  await sharedReplay.close();
   await replay.setViewportSize({ width: 1440, height: 900 });
   await replay.screenshot({ path: "/tmp/dj-relay-concluded-session-mp3.png", fullPage: true });
   await replay.setViewportSize({ width: 390, height: 844 });
   expect(await replay.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
+  await replay.screenshot({ path: "/tmp/dj-relay-concluded-session-share-mobile.png", fullPage: true });
 
   const archived = await page.evaluate(async (name) => {
     const response = await fetch("/api/admin/sessions?historyLimit=20");

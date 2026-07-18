@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
+import { Button, Dropdown } from "antd";
+import { DownloadSimple } from "@phosphor-icons/react";
 import { sessionApi } from "../api";
 import type { RecordingResponse } from "../types";
 import { InlineNotice } from "./InlineNotice";
+import { SessionShare } from "./SessionShare";
 
 function formatDuration(seconds: number): string {
   const rounded = Math.max(0, Math.round(seconds));
@@ -13,7 +16,40 @@ function formatDuration(seconds: number): string {
     : `${minutes}:${String(remainder).padStart(2, "0")}`;
 }
 
-export function RecordingPlayer({ sessionName }: { sessionName: string }) {
+function RecordingDownloadAction({ parts }: { parts: RecordingResponse["parts"] }) {
+  if (parts.length === 1) {
+    return (
+      <Button
+        className="recording-icon-action"
+        href={parts[0].downloadUrl}
+        download
+        aria-label="Download MP3"
+        title="Download MP3"
+      >
+        <DownloadSimple size={19} weight="bold" aria-hidden="true" />
+      </Button>
+    );
+  }
+
+  return (
+    <Dropdown
+      placement="bottomRight"
+      trigger={["click"]}
+      menu={{
+        items: parts.map((part) => ({
+          key: part.index,
+          label: <a href={part.downloadUrl} download>{`Download part ${part.index + 1} MP3`}</a>,
+        })),
+      }}
+    >
+      <Button className="recording-icon-action" aria-label="Download recording MP3 parts" title="Download recording MP3 parts">
+        <DownloadSimple size={19} weight="bold" aria-hidden="true" />
+      </Button>
+    </Dropdown>
+  );
+}
+
+export function RecordingPlayer({ sessionId, sessionName }: { sessionId: string; sessionName: string }) {
   const [data, setData] = useState<RecordingResponse | null>(null);
   const [error, setError] = useState("");
   const [partIndex, setPartIndex] = useState(0);
@@ -35,54 +71,63 @@ export function RecordingPlayer({ sessionName }: { sessionName: string }) {
     return () => window.clearInterval(timer);
   }, [load]);
 
-  if (error && !data) return <InlineNotice tone="danger">{error}</InlineNotice>;
-  if (!data || data.recording.status === "finalizing") {
-    return <InlineNotice tone="neutral">Preparing the session replay… This page will update automatically.</InlineNotice>;
-  }
-  if (data.recording.status === "deleted") {
-    return <InlineNotice tone="neutral">This recording was deleted by the producer.</InlineNotice>;
-  }
-  if (data.recording.status !== "ready" || data.parts.length === 0) {
-    return <InlineNotice tone="danger">The replay is temporarily unavailable. Discus will keep checking for it.</InlineNotice>;
+  const ready = data?.recording.status === "ready" && data.parts.length > 0;
+  const part = ready ? data.parts[partIndex] : null;
+  const hasNextPart = ready && partIndex < data.parts.length - 1;
+  let content;
+
+  if (error && !data) {
+    content = <InlineNotice tone="danger">{error}</InlineNotice>;
+  } else if (!data || data.recording.status === "finalizing") {
+    content = <InlineNotice tone="neutral">Preparing the session replay… This page will update automatically.</InlineNotice>;
+  } else if (data.recording.status === "deleted") {
+    content = <InlineNotice tone="neutral">This recording was deleted by the producer.</InlineNotice>;
+  } else if (!ready || !part) {
+    content = <InlineNotice tone="danger">The replay is temporarily unavailable. Discus will keep checking for it.</InlineNotice>;
+  } else {
+    content = (
+      <>
+        <div className="recording-player-heading">
+          <div>
+            <p className="recording-ready-copy">This session has concluded. Recorded playback is ready.</p>
+            <h2 id="recording-player-title">{sessionName}</h2>
+          </div>
+          <span>{data.recording.durationSeconds === null ? "" : formatDuration(data.recording.durationSeconds)}</span>
+        </div>
+        <audio
+          key={part.url}
+          className="archive-audio-player"
+          controls
+          controlsList="nodownload"
+          autoPlay={partIndex > 0}
+          src={part.url}
+          aria-label={`${sessionName} recording${data.parts.length > 1 ? ` part ${partIndex + 1}` : ""}`}
+          onEnded={() => {
+            if (hasNextPart) setPartIndex((current) => current + 1);
+          }}
+        />
+        {data.parts.length > 1 && (
+          <p className="recording-part-label">Part {partIndex + 1} of {data.parts.length} · reconnects continue automatically</p>
+        )}
+        {error && <InlineNotice tone="danger">{error}</InlineNotice>}
+      </>
+    );
   }
 
-  const part = data.parts[partIndex];
-  const hasNextPart = partIndex < data.parts.length - 1;
   return (
-    <section className="recording-player" aria-labelledby="recording-player-title">
-      <div className="recording-player-heading">
-        <div>
-          <p className="recording-ready-copy">This session has concluded. Recorded playback is ready.</p>
-          <h2 id="recording-player-title">{sessionName}</h2>
-        </div>
-        <span>{data.recording.durationSeconds === null ? "" : formatDuration(data.recording.durationSeconds)}</span>
+    <section className="recording-player" aria-labelledby={ready ? "recording-player-title" : undefined}>
+      <div className="recording-player-actions" aria-label="Session actions">
+        {ready && <RecordingDownloadAction parts={data.parts} />}
+        <SessionShare
+          sessionId={sessionId}
+          label="Share session"
+          description="Anyone with this link can listen to the replay."
+          errorMessage="Could not create the session link."
+          className="recording-icon-action"
+          variant="icon"
+        />
       </div>
-      <audio
-        key={part.url}
-        className="archive-audio-player"
-        controls
-        controlsList="nodownload"
-        autoPlay={partIndex > 0}
-        src={part.url}
-        aria-label={`${sessionName} recording${data.parts.length > 1 ? ` part ${partIndex + 1}` : ""}`}
-        onEnded={() => {
-          if (hasNextPart) setPartIndex((current) => current + 1);
-        }}
-      />
-      {data.parts.length > 1 && (
-        <p className="recording-part-label">Part {partIndex + 1} of {data.parts.length} · reconnects continue automatically</p>
-      )}
-      <div className="recording-downloads" aria-label="Recording downloads">
-        <strong>{data.parts.length > 1 ? "Download recording parts" : "Download recording"}</strong>
-        <div>
-          {data.parts.map((recordingPart) => (
-            <a className="recording-download-link" href={recordingPart.downloadUrl} download key={recordingPart.index}>
-              {data.parts.length > 1 ? `Download part ${recordingPart.index + 1} MP3` : "Download MP3"}
-            </a>
-          ))}
-        </div>
-      </div>
-      {error && <InlineNotice tone="danger">{error}</InlineNotice>}
+      {content}
     </section>
   );
 }

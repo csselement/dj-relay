@@ -1,9 +1,21 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { sessionApi } from "../api";
 import { RecordingPlayer } from "./RecordingPlayer";
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+beforeEach(() => {
+  vi.stubGlobal("ResizeObserver", class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  });
+  vi.spyOn(sessionApi, "shareLink").mockResolvedValue({ url: "https://discus.test/s/shared-replay" });
+});
 
 describe("RecordingPlayer", () => {
   it("loads a replay and advances through reconnect parts", async () => {
@@ -15,12 +27,16 @@ describe("RecordingPlayer", () => {
       ],
     });
 
-    render(<RecordingPlayer sessionName="Friday session" />);
+    render(<RecordingPlayer sessionId="session-1" sessionName="Friday session" />);
     const first = await screen.findByLabelText("Friday session recording part 1");
     expect(first).toHaveAttribute("src", "/api/session/recording/parts/0");
     expect(first).toHaveAttribute("controlslist", "nodownload");
     expect(screen.getByText("This session has concluded. Recorded playback is ready.")).toBeVisible();
-    expect(screen.getByRole("link", { name: "Download part 1 MP3" })).toHaveAttribute("href", "/api/session/recording/parts/0?download=mp3");
+    const downloadButton = screen.getByRole("button", { name: "Download recording MP3 parts" });
+    expect(downloadButton.querySelector("svg")).not.toBeNull();
+    expect((await screen.findByRole("button", { name: "Copy session link" })).querySelector("svg")).not.toBeNull();
+    fireEvent.click(downloadButton);
+    expect(await screen.findByRole("link", { name: "Download part 1 MP3" })).toHaveAttribute("href", "/api/session/recording/parts/0?download=mp3");
     expect(screen.getByRole("link", { name: "Download part 2 MP3" })).toHaveAttribute("href", "/api/session/recording/parts/1?download=mp3");
     fireEvent.ended(first);
     await waitFor(() => expect(screen.getByLabelText("Friday session recording part 2")).toHaveAttribute("src", "/api/session/recording/parts/1"));
@@ -31,8 +47,9 @@ describe("RecordingPlayer", () => {
       recording: { requested: true, status: "finalizing", durationSeconds: null, partCount: 0 },
       parts: [],
     });
-    render(<RecordingPlayer sessionName="Friday session" />);
+    render(<RecordingPlayer sessionId="session-1" sessionName="Friday session" />);
     expect(await screen.findByText(/Preparing the session replay/)).toBeVisible();
+    expect(await screen.findByRole("button", { name: "Copy session link" })).toBeVisible();
   });
 
   it("offers a single concluded recording as an MP3", async () => {
@@ -47,7 +64,7 @@ describe("RecordingPlayer", () => {
       }],
     });
 
-    render(<RecordingPlayer sessionName="Friday session" />);
+    render(<RecordingPlayer sessionId="session-1" sessionName="Friday session" />);
     expect(await screen.findByText("This session has concluded. Recorded playback is ready.")).toBeVisible();
     expect(screen.getByRole("link", { name: "Download MP3" })).toHaveAttribute(
       "href",

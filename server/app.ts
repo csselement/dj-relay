@@ -82,7 +82,7 @@ function requireInvite(config: AppConfig, store: SessionStore) {
     const payload = invitePayload(req, config);
     if (!payload?.sessionId || !payload.role) return sendError(res, 401, "Invite link required");
     const session = store.get(payload.sessionId);
-    if (!session || (session.state === "expired" && !isReplaySession(session) && !payload.producerPreview)) {
+    if (!session || (session.state === "expired" && payload.role === "dj" && !payload.producerPreview)) {
       return sendError(res, 410, "This session has expired");
     }
     res.locals.invite = payload;
@@ -351,15 +351,13 @@ export function createApp({
       const sharedInvite = verifyToken(token, config.tokenSecret);
       if (sharedInvite?.kind === "share" && sharedInvite.role === "listener" && sharedInvite.sessionId) {
         const session = store.get(sharedInvite.sessionId);
-        if (session && session.state !== "ended" && session.state !== "expired") {
-          result = { session, role: "listener" };
-        }
+        if (session) result = { session, role: "listener" };
       }
     }
     if (!result) return sendError(res, 404, "This invite is invalid, expired, or ended");
 
-    const replay = isReplaySession(result.session);
-    const exp = replay ? expiresIn(12 * 60 * 60) : Math.floor(new Date(result.session.expiresAt).getTime() / 1000);
+    const concluded = result.session.state === "ended" || result.session.state === "expired";
+    const exp = concluded ? expiresIn(12 * 60 * 60) : Math.floor(new Date(result.session.expiresAt).getTime() / 1000);
     const existingInvite = invitePayload(req, config);
     const listenerId = result.role === "listener" ?
       (existingInvite?.role === "listener" && existingInvite.sessionId === result.session.id && existingInvite.listenerId ?
@@ -425,15 +423,13 @@ export function createApp({
     }
     store.endStaleSessions(config.djDisconnectGraceMs);
     const session = store.get((res.locals.session as RelaySession).id);
-    if (!session || session.state === "ended" || session.state === "expired") {
-      return sendError(res, 410, "This broadcast has ended");
-    }
+    if (!session) return sendError(res, 410, "This session is no longer available");
 
     const token = signToken({
       kind: "share",
       role: "listener",
       sessionId: session.id,
-      exp: Math.floor(new Date(session.expiresAt).getTime() / 1000),
+      exp: expiresIn(12 * 60 * 60),
     }, config.tokenSecret);
     const origin = `${req.protocol}://${req.get("host")}`;
     res.json({ url: `${origin}/s/${token}` });

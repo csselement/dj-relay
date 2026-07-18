@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { Button, Tag } from "antd";
-import { CopySimple, WifiSlash } from "@phosphor-icons/react";
+import { WifiSlash } from "@phosphor-icons/react";
 import { sessionApi } from "../api";
-import { copyText } from "../clipboard";
 import { AnimatedText } from "../components/AnimatedText";
 import { AppShell } from "../components/AppShell";
 import { InlineNotice } from "../components/InlineNotice";
 import { RecordingPlayer } from "../components/RecordingPlayer";
+import { SessionShare } from "../components/SessionShare";
 import { useSession } from "../hooks/useSession";
 import { WhepReader, type MediaConnectionState } from "../media";
 
@@ -19,22 +19,12 @@ export function ListenerPage() {
   const { data, error } = useSession("listener");
   const [connection, setConnection] = useState<MediaConnectionState | "idle">("idle");
   const [message, setMessage] = useState("");
-  const [shareUrl, setShareUrl] = useState("");
-  const [shareError, setShareError] = useState("");
-  const [copied, setCopied] = useState(false);
   const [hasAudio, setHasAudio] = useState(false);
   const [countdownNow, setCountdownNow] = useState(Date.now());
   const readerRef = useRef<WhepReader | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
 
   useEffect(() => () => readerRef.current?.close(), []);
-  useEffect(() => {
-    if (!data?.session.id || data.session.state === "ended" || data.session.state === "expired") return;
-    void sessionApi.shareLink().then(({ url }) => {
-      setShareUrl(url);
-      setShareError("");
-    }).catch(() => setShareError("Could not create the listener invite link."));
-  }, [data?.session.id]);
   const waitingForDj = connection === "reconnecting" || data?.session.state === "interrupted";
   useEffect(() => {
     if (!waitingForDj) return;
@@ -74,17 +64,6 @@ export function ListenerPage() {
     }
   }
 
-  async function copyShareLink() {
-    if (!shareUrl) return;
-    try {
-      await copyText(shareUrl);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    } catch {
-      setShareError("Could not copy the link. Select the link and copy it manually.");
-    }
-  }
-
   if (error) return <ListenerMessage title="Invite link required" message={error} />;
   if (!data) return <ListenerMessage title="Loading session" message="Checking your private listener invite…" />;
   if (data.session.state === "ended" || data.session.state === "expired") {
@@ -92,7 +71,7 @@ export function ListenerPage() {
       return (
         <AppShell footer="Private recording · This replay remains available until the producer deletes it.">
           <div className="listener-view replay-view">
-            <RecordingPlayer sessionName={data.session.name} />
+            <RecordingPlayer sessionId={data.session.id} sessionName={data.session.name} />
           </div>
         </AppShell>
       );
@@ -150,20 +129,12 @@ export function ListenerPage() {
         {connection !== "idle" && connection !== "closed" && <audio ref={audioRef} className={`listener-player ${hasAudio ? "" : "is-pending"}`} controls aria-label="Discus live audio" />}
         {message && !waitingForDj && <InlineNotice tone={connection === "connected" ? "neutral" : "danger"}>{message}</InlineNotice>}
         <p className="listener-count compact"><span className="listener-icon" aria-hidden="true" />{data.session.listenerCount} listening</p>
-        {shareUrl && (
-          <section className="listener-share" aria-labelledby="listener-share-label">
-            <div className="listener-share-copy">
-              <strong id="listener-share-label">Listener invite</strong>
-              <a href={shareUrl} target="_blank" rel="noreferrer">{shareUrl}</a>
-              <span>Anyone with this link can listen.</span>
-            </div>
-            <Button className="copy-button listener-copy-button" onClick={() => void copyShareLink()}>
-              <CopySimple size={18} weight="bold" aria-hidden="true" />
-              <AnimatedText value={copied ? "Copied" : "Copy link"} />
-            </Button>
-          </section>
-        )}
-        {shareError && <InlineNotice tone="danger">{shareError}</InlineNotice>}
+        <SessionShare
+          sessionId={data.session.id}
+          label="Share session"
+          description="Anyone with this link can listen."
+          errorMessage="Could not create the session link."
+        />
       </div>
     </AppShell>
   );
