@@ -38,5 +38,6 @@ export type RecordingResponse = {
     start: string;
     durationSeconds: number;
     url: string;
+    downloadUrl: string;
   }>;
 };

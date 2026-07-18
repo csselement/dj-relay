@@ -10,14 +10,16 @@ describe("RecordingPlayer", () => {
     vi.spyOn(sessionApi, "recording").mockResolvedValue({
       recording: { requested: true, status: "ready", durationSeconds: 20, partCount: 2 },
       parts: [
-        { index: 0, start: "2026-07-17T20:00:00Z", durationSeconds: 12, url: "/api/session/recording/parts/0" },
-        { index: 1, start: "2026-07-17T20:01:00Z", durationSeconds: 8, url: "/api/session/recording/parts/1" },
+        { index: 0, start: "2026-07-17T20:00:00Z", durationSeconds: 12, url: "/api/session/recording/parts/0", downloadUrl: "/api/session/recording/parts/0?download=1" },
+        { index: 1, start: "2026-07-17T20:01:00Z", durationSeconds: 8, url: "/api/session/recording/parts/1", downloadUrl: "/api/session/recording/parts/1?download=1" },
       ],
     });
 
     render(<RecordingPlayer sessionName="Friday session" />);
     const first = await screen.findByLabelText("Friday session recording part 1");
     expect(first).toHaveAttribute("src", "/api/session/recording/parts/0");
+    expect(screen.getByRole("link", { name: "Download part 1" })).toHaveAttribute("href", "/api/session/recording/parts/0?download=1");
+    expect(screen.getByRole("link", { name: "Download part 2" })).toHaveAttribute("href", "/api/session/recording/parts/1?download=1");
     fireEvent.ended(first);
     await waitFor(() => expect(screen.getByLabelText("Friday session recording part 2")).toHaveAttribute("src", "/api/session/recording/parts/1"));
   });

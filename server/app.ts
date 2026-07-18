@@ -164,7 +164,7 @@ export function createApp({
     );
   }
 
-  async function streamRecordingPart(session: RelaySession, index: number, res: Response): Promise<void> {
+  async function streamRecordingPart(session: RelaySession, index: number, download: boolean, res: Response): Promise<void> {
     const parts = await recordings.listParts(session.mediaPath);
     const part = parts[index];
     if (!part) return sendError(res, 404, "Recording part not found");
@@ -178,7 +178,12 @@ export function createApp({
       res.status(upstream.status);
       res.setHeader("Content-Type", upstream.headers.get("content-type") ?? "video/mp4");
       res.setHeader("Cache-Control", "private, no-store");
-      res.setHeader("Content-Disposition", "inline");
+      const safeName = session.name.normalize("NFKD")
+        .replace(/[^a-zA-Z0-9._-]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 80) || "discus-recording";
+      const filename = parts.length > 1 ? `${safeName}-part-${index + 1}.mp4` : `${safeName}.mp4`;
+      res.setHeader("Content-Disposition", download ? `attachment; filename="${filename}"` : "inline");
       const contentLength = upstream.headers.get("content-length");
       if (contentLength) res.setHeader("Content-Length", contentLength);
       await pipeline(Readable.fromWeb(upstream.body as NodeReadableStream<Uint8Array>), res);
@@ -430,20 +435,21 @@ export function createApp({
         start: part.start,
         durationSeconds: part.durationSeconds,
         url: `/api/session/recording/parts/${index}`,
+        downloadUrl: `/api/session/recording/parts/${index}?download=1`,
       })),
     });
   });
 
-  app.get("/api/session/recording/parts/:index", requireInvite(config, store), async (_req, res) => {
+  app.get("/api/session/recording/parts/:index", requireInvite(config, store), async (req, res) => {
     const invite = res.locals.invite as TokenPayload;
     if (invite.role !== "listener") return sendError(res, 403, "Listener access required");
     const session = store.get((res.locals.session as RelaySession).id);
     if (!session || !isReplaySession(session) || session.recordingDeletedAt) {
       return sendError(res, 410, "This recording is no longer available");
     }
-    const index = Number(_req.params.index);
+    const index = Number(req.params.index);
     if (!Number.isSafeInteger(index) || index < 0) return sendError(res, 404, "Recording part not found");
-    await streamRecordingPart(session, index, res);
+    await streamRecordingPart(session, index, req.query.download === "1", res);
   });
 
   app.post("/api/session/state", requireInvite(config, store), async (req, res) => {

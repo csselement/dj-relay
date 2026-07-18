@@ -54,6 +54,7 @@ export function AdminPage() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState<"login" | "create" | null>(null);
   const [endingId, setEndingId] = useState("");
+  const [deletingRecordingId, setDeletingRecordingId] = useState("");
   const [historyLimit, setHistoryLimit] = useState(HISTORY_BATCH_SIZE);
   const [historyLoaded, setHistoryLoaded] = useState(0);
   const [historyHasMore, setHistoryHasMore] = useState(false);
@@ -140,6 +141,20 @@ export function AdminPage() {
     }
   }
 
+  async function deleteRecording(session: RelaySession) {
+    if (!window.confirm(`Delete the recording of “${session.name}”? This cannot be undone.`)) return;
+    setDeletingRecordingId(session.id);
+    try {
+      await api(`/api/admin/recordings/${session.id}`, { method: "DELETE" });
+      await loadSessions();
+      setError("");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to delete recording");
+    } finally {
+      setDeletingRecordingId("");
+    }
+  }
+
   if (authenticated === null) return <AppShell footer=""><div className="message-view"><h1>Producer console</h1><p className="intro-copy">Loading…</p></div></AppShell>;
   if (!authenticated) {
     return (
@@ -162,10 +177,7 @@ export function AdminPage() {
       <div className="admin-view">
         <div className="admin-heading">
           <div><h1>Sessions</h1><p className="intro-copy">Create one private relay at a time.</p></div>
-          <div className="admin-heading-actions">
-            <Button href="/admin/recordings">Recordings</Button>
-            <Tag className="health-dot" color="success">System ready</Tag>
-          </div>
+          <Tag className="health-dot" color="success">System ready</Tag>
         </div>
         <Card className="create-session-card">
           <form className="create-session" onSubmit={createSession}>
@@ -201,8 +213,11 @@ export function AdminPage() {
           )}
           {sessions.map((session) => {
             const active = session.state !== "ended" && session.state !== "expired";
-            const recordingLabel = session.recording.requested ? ` · recording ${session.recording.status}` : "";
+            const recordingLabel = recordingArchiveLabel(session);
             const sessionDetails = <><h3>{session.name}</h3><p>{session.state} · {sessionAudienceLabel(session)}{recordingLabel} · expires {new Date(session.expiresAt).toLocaleString()}</p></>;
+            const recordingReady = !active && session.recording.status === "ready";
+            const recordingDeletable = !active && session.recording.requested &&
+              session.recording.status !== "deleted" && session.recording.status !== "finalizing";
             return (
               <article className={`session-row ${active ? "is-active" : "is-history"}`} key={session.id}>
                 {active ? (
@@ -216,7 +231,19 @@ export function AdminPage() {
                     {sessionDetails}
                   </a>
                 ) : <div className="session-row-copy">{sessionDetails}</div>}
-                {active && <Button className="small-danger-button" danger loading={endingId === session.id} onClick={() => void endSession(session.id)}>{endingId === session.id ? "Ending…" : "End"}</Button>}
+                <div className="session-row-actions">
+                  {active && <Button className="small-danger-button" danger loading={endingId === session.id} onClick={() => void endSession(session.id)}>{endingId === session.id ? "Ending…" : "End"}</Button>}
+                  {recordingReady && (
+                    <Button href={`/api/admin/sessions/${session.id}/listen`} target="_blank">
+                      Open session
+                    </Button>
+                  )}
+                  {recordingDeletable && (
+                    <Button danger loading={deletingRecordingId === session.id} onClick={() => void deleteRecording(session)}>
+                      Delete recording
+                    </Button>
+                  )}
+                </div>
               </article>
             );
           })}
@@ -235,6 +262,25 @@ export function AdminPage() {
       </div>
     </AppShell>
   );
+}
+
+function formatRecordingDuration(seconds: number): string {
+  const rounded = Math.max(0, Math.round(seconds));
+  const hours = Math.floor(rounded / 3600);
+  const minutes = Math.floor((rounded % 3600) / 60);
+  const remainder = rounded % 60;
+  return hours > 0
+    ? `${hours}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`
+    : `${minutes}:${String(remainder).padStart(2, "0")}`;
+}
+
+export function recordingArchiveLabel(session: RelaySession): string {
+  if (!session.recording.requested) return "";
+  if (session.recording.status !== "ready" || session.recording.durationSeconds === null) {
+    return ` · recording ${session.recording.status}`;
+  }
+  const partLabel = session.recording.partCount === 1 ? "1 part" : `${session.recording.partCount} parts`;
+  return ` · recording ready · ${formatRecordingDuration(session.recording.durationSeconds)} · ${partLabel}`;
 }
 
 function CopyLink({ label, value }: { label: string; value: string }) {

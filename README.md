@@ -61,7 +61,7 @@ Keep the application and MediaMTX administration ports private. Caddy obtains th
 
 Producers can enable **Record this session** while creating a session. The setting is off by default and cannot be enabled after creation. Recording-enabled sessions use MediaMTX's native fMP4 recorder and keep the existing 192 kbps stereo Opus relay without transcoding. DJs and listeners see a recording disclosure while the broadcast is active.
 
-When the broadcast ends, its original listener link becomes private replay access. Reconnects appear as ordered recording parts and the player advances through them without filling gaps. Producers can review and permanently delete archives from `/admin/recordings`.
+When the broadcast ends, its original listener link becomes private replay access. Reconnects appear as ordered recording parts and the player advances through them without filling gaps. Ready recordings remain in the main producer session history, where the producer can reopen the session, play it in the browser, download each MP4 part, or permanently delete it.
 
 The `relay-recordings` Docker volume stores media separately from SQLite and is retained across deployments until a producer deletes it. It is not included in the SQLite backup or copied off-device. MediaMTX playback on port 9996 is reachable only inside the Docker network; the application authorizes and proxies every replay request.
 

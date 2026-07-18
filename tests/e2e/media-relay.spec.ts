@@ -78,7 +78,10 @@ test("records a browser relay, replays it, and deletes the archive", async ({ pa
   await expect(listener.locator("audio")).toHaveAttribute("src", /\/api\/session\/recording\/parts\/0/);
   const recordingMetadata = await listener.evaluate(async () => {
     const response = await fetch("/api/session/recording");
-    return response.json() as Promise<{ recording: { partCount: number }; parts: unknown[] }>;
+    return response.json() as Promise<{
+      recording: { partCount: number };
+      parts: Array<{ downloadUrl: string }>;
+    }>;
   });
   expect(recordingMetadata.recording.partCount).toBeGreaterThanOrEqual(2);
   expect(recordingMetadata.parts).toHaveLength(recordingMetadata.recording.partCount);
@@ -95,15 +98,25 @@ test("records a browser relay, replays it, and deletes the archive", async ({ pa
   expect(replayResponse.ok).toBe(true);
   expect(replayResponse.size).toBeGreaterThan(0);
   expect(replayResponse.contentType).toContain("video/mp4");
+  const downloadResponse = await listener.evaluate(async (downloadUrl) => {
+    const response = await fetch(downloadUrl);
+    return {
+      ok: response.ok,
+      disposition: response.headers.get("content-disposition"),
+      size: (await response.arrayBuffer()).byteLength,
+    };
+  }, recordingMetadata.parts[0].downloadUrl);
+  expect(downloadResponse.ok).toBe(true);
+  expect(downloadResponse.disposition).toContain("attachment;");
+  expect(downloadResponse.size).toBeGreaterThan(0);
   await listener.screenshot({ path: "/tmp/discus-recording-live-replay.png" });
 
-  await page.getByRole("link", { name: "Recordings" }).click();
-  await expect(page.getByRole("heading", { name: "Recordings" })).toBeVisible();
-  const recording = page.locator("article").filter({ hasText: sessionName });
-  await expect(recording.getByText("Ready")).toBeVisible();
+  const recording = page.locator(".session-row").filter({ hasText: sessionName });
+  await expect(recording).toContainText("recording ready", { timeout: 15_000 });
+  await expect(recording.getByRole("link", { name: "Open session" })).toBeVisible();
   page.once("dialog", (dialog) => void dialog.accept());
-  await recording.getByRole("button", { name: "Delete" }).click();
-  await expect(recording).toHaveCount(0, { timeout: 15_000 });
+  await recording.getByRole("button", { name: "Delete recording" }).click();
+  await expect(recording).toContainText("recording deleted", { timeout: 15_000 });
   await expect(listener.getByText("This recording was deleted by the producer.")).toBeVisible({ timeout: 15_000 });
   await listenerContext.close();
 });

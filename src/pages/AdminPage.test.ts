@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RelaySession } from "../types";
-import { defaultSessionName, sessionAudienceLabel } from "./AdminPage";
+import { defaultSessionName, recordingArchiveLabel, sessionAudienceLabel } from "./AdminPage";
 
 const session: RelaySession = {
   id: "session-1",
@@ -42,5 +42,23 @@ describe("defaultSessionName", () => {
     ["2026-07-21T05:00:00.000Z", "Monday Night Session"],
   ])("uses the Los Angeles weekday and time of day for %s", (timestamp, expected) => {
     expect(defaultSessionName(new Date(timestamp))).toBe(expected);
+  });
+});
+
+describe("recordingArchiveLabel", () => {
+  it("shows duration and reconnect parts for ready recordings", () => {
+    expect(recordingArchiveLabel({
+      ...session,
+      state: "ended",
+      recording: { requested: true, status: "ready", durationSeconds: 80.4, partCount: 2 },
+    })).toBe(" · recording ready · 1:20 · 2 parts");
+  });
+
+  it("shows archive state while a recording is not ready", () => {
+    expect(recordingArchiveLabel({
+      ...session,
+      state: "ended",
+      recording: { requested: true, status: "finalizing", durationSeconds: null, partCount: 0 },
+    })).toBe(" · recording finalizing");
   });
 });

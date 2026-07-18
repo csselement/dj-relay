@@ -165,8 +165,8 @@ test("producer opts into recording and the original listener link becomes a repl
     body: JSON.stringify({
       recording: { requested: true, status: "ready", durationSeconds: 20.75, partCount: 2 },
       parts: [
-        { index: 0, start: "2026-07-17T20:00:00Z", durationSeconds: 12.5, url: "/api/session/recording/parts/0" },
-        { index: 1, start: "2026-07-17T20:01:00Z", durationSeconds: 8.25, url: "/api/session/recording/parts/1" },
+        { index: 0, start: "2026-07-17T20:00:00Z", durationSeconds: 12.5, url: "/api/session/recording/parts/0", downloadUrl: "/api/session/recording/parts/0?download=1" },
+        { index: 1, start: "2026-07-17T20:01:00Z", durationSeconds: 8.25, url: "/api/session/recording/parts/1", downloadUrl: "/api/session/recording/parts/1?download=1" },
       ],
     }),
   }));
@@ -174,6 +174,8 @@ test("producer opts into recording and the original listener link becomes a repl
   await expect(replay.getByText("Replay ready")).toBeVisible();
   await expect(replay.getByLabel(`${sessionName} recording part 1`)).toHaveAttribute("src", "/api/session/recording/parts/0");
   await expect(replay.getByText("Part 1 of 2 · reconnects continue automatically")).toBeVisible();
+  await expect(replay.getByRole("link", { name: "Download part 1" })).toHaveAttribute("href", "/api/session/recording/parts/0?download=1");
+  await expect(replay.getByRole("link", { name: "Download part 2" })).toHaveAttribute("href", "/api/session/recording/parts/1?download=1");
   await replay.setViewportSize({ width: 390, height: 844 });
   expect(await replay.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
 
@@ -187,20 +189,35 @@ test("producer opts into recording and the original listener link becomes a repl
     ...archived,
     recording: { requested: true, status: "ready", durationSeconds: 20.75, partCount: 2 },
   };
-  await page.route("**/api/admin/recordings?*", (route) => route.fulfill({
+  let recordingDeleted = false;
+  await page.route("**/api/admin/sessions?*", (route) => route.fulfill({
     contentType: "application/json",
-    body: JSON.stringify({ recordings: [archiveSession], nextCursor: null }),
+    body: JSON.stringify({
+      sessions: [{
+        ...archiveSession,
+        recording: recordingDeleted
+          ? { requested: true, status: "deleted", durationSeconds: null, partCount: 0 }
+          : archiveSession.recording,
+      }],
+      history: { loaded: 1, total: 1, hasMore: false },
+    }),
   }));
   await page.route("**/api/admin/recordings/*", (route) => {
-    if (route.request().method() === "DELETE") return route.fulfill({ status: 204 });
+    if (route.request().method() === "DELETE") {
+      recordingDeleted = true;
+      return route.fulfill({ status: 204 });
+    }
     return route.continue();
   });
-  await page.goto("/admin/recordings");
-  const archiveRow = page.locator(".recording-archive-row").filter({ hasText: sessionName });
-  await expect(archiveRow.getByRole("link", { name: "Play" })).toBeEnabled();
+  await page.reload();
+  const archiveRow = page.locator(".session-row").filter({ hasText: sessionName });
+  await expect(archiveRow).toContainText("recording ready · 0:21 · 2 parts");
+  await expect(archiveRow.getByRole("link", { name: "Open session" }))
+    .toHaveAttribute("href", new RegExp(`/api/admin/sessions/${archiveSession.id}/listen$`));
   page.once("dialog", (dialog) => dialog.accept());
-  await archiveRow.getByRole("button", { name: "Delete" }).click();
-  await expect(archiveRow).toHaveCount(0);
+  await archiveRow.getByRole("button", { name: "Delete recording" }).click();
+  await expect(archiveRow).toContainText("recording deleted");
+  await expect(archiveRow.getByRole("link", { name: "Open session" })).toHaveCount(0);
   await dj.close();
   await replay.close();
 });

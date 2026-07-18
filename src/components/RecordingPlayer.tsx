@@ -72,6 +72,16 @@ export function RecordingPlayer({ sessionName }: { sessionName: string }) {
       {data.parts.length > 1 && (
         <p className="recording-part-label">Part {partIndex + 1} of {data.parts.length} · reconnects continue automatically</p>
       )}
+      <div className="recording-downloads" aria-label="Recording downloads">
+        <strong>{data.parts.length > 1 ? "Download recording parts" : "Download recording"}</strong>
+        <div>
+          {data.parts.map((recordingPart) => (
+            <a className="recording-download-link" href={recordingPart.downloadUrl} download key={recordingPart.index}>
+              {data.parts.length > 1 ? `Download part ${recordingPart.index + 1}` : "Download MP4"}
+            </a>
+          ))}
+        </div>
+      </div>
       {error && <InlineNotice tone="danger">{error}</InlineNotice>}
     </section>
   );

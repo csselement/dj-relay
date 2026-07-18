@@ -91,8 +91,15 @@ describe("Discus API", () => {
         "/api/session/recording/parts/0",
         "/api/session/recording/parts/1",
       ]);
+      expect(body.parts.map((part: { downloadUrl: string }) => part.downloadUrl)).toEqual([
+        "/api/session/recording/parts/0?download=1",
+        "/api/session/recording/parts/1?download=1",
+      ]);
     });
     await replay.get("/api/session/recording/parts/0").expect(200).expect("Content-Type", /video\/mp4/);
+    await replay.get("/api/session/recording/parts/0?download=1")
+      .expect(200)
+      .expect("Content-Disposition", "attachment; filename=\"Recorded-relay-part-1.mp4\"");
     await owner.get(`/api/admin/sessions/${created.body.session.id}/listen`).expect(302).expect("Location", "/listen");
     await owner.get("/api/admin/recordings?limit=12").expect(200).expect(({ body }) => {
       expect(body.recordings).toHaveLength(1);
