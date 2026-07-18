@@ -1,5 +1,8 @@
 {
 	auto_https disable_redirects
+	servers {
+		protocols h1 h2
+	}
 }
 
 {$DJ_RELAY_DOMAIN:localhost} {
@@ -20,6 +23,7 @@
 	}
 
 	header {
+		Alt-Svc "clear"
 		Referrer-Policy "no-referrer"
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "DENY"
