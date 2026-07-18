@@ -60,17 +60,17 @@ export type RecordingSessionPage = {
 };
 
 function mapSession(row: SessionRow): RelaySession {
-  const expired = row.state !== "ended" && new Date(row.expires_at).getTime() <= Date.now();
+  const concludedAtExpiration = row.state !== "ended" && new Date(row.expires_at).getTime() <= Date.now();
   return {
     id: row.id,
     name: row.name,
     mediaPath: row.media_path,
-    state: expired ? "expired" : row.state,
+    state: concludedAtExpiration ? "ended" : row.state,
     createdAt: row.created_at,
     expiresAt: row.expires_at,
     startedAt: row.started_at,
-    endedAt: row.ended_at,
-    endedReason: row.ended_reason,
+    endedAt: concludedAtExpiration ? row.expires_at : row.ended_at,
+    endedReason: concludedAtExpiration ? "timeout" : row.ended_reason,
     djLastSeenAt: row.dj_last_seen_at,
     interruptedAt: row.interrupted_at,
     listenerHistoryAvailable: Boolean(row.listener_tracking_started_at),

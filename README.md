@@ -1,6 +1,6 @@
 # Discus
 
-Discus is a private, browser-based stereo audio relay for remote DJs. It publishes mixer or audio-interface input as Opus over WebRTC and provides separate, expiring links for DJs and listeners.
+Discus is a private, browser-based stereo audio relay for remote DJs. It publishes mixer or audio-interface input as Opus over WebRTC and provides separate private links for DJs and listeners.
 
 ## Features
 
@@ -61,7 +61,7 @@ Keep the application and MediaMTX administration ports private. Caddy obtains th
 
 Producers can toggle **Record** while creating a session. Recording is selected by default in the producer console, and the choice cannot be changed after creation. Recording-enabled sessions use MediaMTX's native fMP4 recorder and keep the existing 192 kbps stereo Opus relay without transcoding. DJs and listeners see a recording disclosure while the broadcast is active.
 
-When the broadcast ends, its original listener link and any shared listener links continue into private replay access. Replay viewers can also copy a new session link from the replay card. Reconnects appear as ordered recording parts and the player advances through them without filling gaps. Ready recordings remain in the main producer session history, where the producer can reopen the session, play it in the browser, download each part as a 192 kbps stereo MP3, or permanently delete it. MP3 downloads are transcoded on demand with FFmpeg while the original Opus/fMP4 archive remains unchanged for browser playback.
+When the broadcast ends, its original listener link and any shared listener links remain available until the producer deletes the session. Unrecorded links show that the session has concluded; recorded links continue into private replay access. Replay viewers can also copy a durable session link from the replay card. Reconnects appear as ordered recording parts and the player advances through them without filling gaps. Ready recordings remain in the main producer session history, where the producer can reopen the session, play it in the browser, download each part as a 192 kbps stereo MP3, or permanently delete it. MP3 downloads are transcoded on demand with FFmpeg while the original Opus/fMP4 archive remains unchanged for browser playback.
 
 The `relay-recordings` Docker volume stores media separately from SQLite and is retained across deployments until a producer deletes it. It is not included in the SQLite backup or copied off-device. MediaMTX playback on port 9996 is reachable only inside the Docker network; the application authorizes and proxies every replay request.
 
@@ -73,7 +73,7 @@ To announce the first time a session goes live in one Discord channel, create an
 DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
 ```
 
-The integration is optional. When configured, Discus posts the session name and a private, expiring listener link. A Discord delivery failure is logged but never prevents the broadcast from going live. Treat the webhook URL as a secret.
+The integration is optional. When configured, Discus posts the session name and a private listener link that remains available until the producer deletes the session. A Discord delivery failure is logged but never prevents the broadcast from going live. Treat the webhook URL as a secret.
 
 For repeat deployments from another computer, use any SSH-accessible Linux host:
 

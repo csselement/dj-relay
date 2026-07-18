@@ -156,9 +156,10 @@ test("owner creates a session and DJ reaches the ready screen", async ({ page, c
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ state: "ended" }),
   }));
-  await expect(row).toContainText("ended", { timeout: 6_000 });
-  await expect(observer.getByRole("heading", { name: "Broadcast ended" })).toBeVisible({ timeout: 6_000 });
-  await expect(observer.getByText("The DJ ended this stream.")).toBeVisible();
+  await expect(row).toContainText("concluded", { timeout: 6_000 });
+  await expect(row).not.toContainText("expires");
+  await expect(observer.getByRole("heading", { name: "Session concluded" })).toBeVisible({ timeout: 6_000 });
+  await expect(observer.getByText("This session has concluded.")).toBeVisible();
   await observerContext.close();
 });
 
@@ -309,7 +310,8 @@ test("ended sessions retain the number of individual listener browsers", async (
 
   const row = page.locator(".session-row").filter({ hasText: sessionName });
   await row.getByRole("button", { name: "End" }).click();
-  await expect(row).toContainText("ended · 2 people listened");
+  await expect(row).toContainText("concluded · 2 people listened");
+  await expect(row).not.toContainText("expires");
 });
 
 test("inactive session history loads in batches near the viewport", async ({ page }) => {
@@ -364,5 +366,5 @@ test("invalid invite fails clearly", async ({ page }) => {
   await page.goto("/s/not-a-real-invite");
   await expect(page.getByRole("link", { name: "Producer console" })).toHaveAttribute("href", "/admin");
   await expect(page.getByRole("heading", { name: "Invite unavailable" })).toBeVisible();
-  await expect(page.getByText("This invite is invalid, expired, or ended")).toBeVisible();
+  await expect(page.getByText("This invite is invalid or no longer available")).toBeVisible();
 });

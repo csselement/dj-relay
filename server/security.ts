@@ -1,14 +1,18 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
-export type TokenPayload = {
-  kind: "admin" | "invite" | "media" | "share";
+type TokenFields = {
   role?: "dj" | "listener";
   sessionId?: string;
   listenerId?: string;
   producerPreview?: boolean;
   path?: string;
-  exp: number;
 };
+
+export type TokenPayload =
+  | (TokenFields & { kind: "admin"; exp: number })
+  | (TokenFields & { kind: "invite"; exp: number })
+  | (TokenFields & { kind: "media"; exp: number })
+  | (TokenFields & { kind: "share"; exp?: number });
 
 function base64url(value: string | Buffer): string {
   return Buffer.from(value).toString("base64url");
@@ -36,7 +40,10 @@ export function verifyToken(token: string | undefined, secret: string): TokenPay
 
   try {
     const payload = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as TokenPayload;
-    if (!payload.exp || payload.exp <= Math.floor(Date.now() / 1000)) return null;
+    // Listener share links are durable capabilities and remain valid until the
+    // producer deletes their session. Ignore exp on legacy share links so links
+    // created before durable sharing was introduced keep working too.
+    if (payload.kind !== "share" && (!payload.exp || payload.exp <= Math.floor(Date.now() / 1000))) return null;
     return payload;
   } catch {
     return null;

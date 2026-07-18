@@ -19,6 +19,7 @@ import { transcodeToMp3, type Mp3Transcoder } from "./transcoding.js";
 
 const ADMIN_COOKIE = "djrelay_admin";
 const INVITE_COOKIE = "djrelay_invite";
+type InviteTokenPayload = Extract<TokenPayload, { kind: "invite" }>;
 
 type AppDependencies = {
   config: AppConfig;
@@ -65,7 +66,7 @@ function adminPayload(req: Request, config: AppConfig): TokenPayload | null {
   return payload?.kind === "admin" ? payload : null;
 }
 
-function invitePayload(req: Request, config: AppConfig): TokenPayload | null {
+function invitePayload(req: Request, config: AppConfig): InviteTokenPayload | null {
   const payload = verifyToken(req.cookies?.[INVITE_COOKIE], config.tokenSecret);
   return payload?.kind === "invite" ? payload : null;
 }
@@ -354,7 +355,7 @@ export function createApp({
         if (session) result = { session, role: "listener" };
       }
     }
-    if (!result) return sendError(res, 404, "This invite is invalid, expired, or ended");
+    if (!result) return sendError(res, 404, "This invite is invalid or no longer available");
 
     const concluded = result.session.state === "ended" || result.session.state === "expired";
     const exp = concluded ? expiresIn(12 * 60 * 60) : Math.floor(new Date(result.session.expiresAt).getTime() / 1000);
@@ -378,7 +379,7 @@ export function createApp({
   });
 
   app.get("/api/session", requireInvite(config, store), async (_req, res) => {
-    const invite = res.locals.invite as TokenPayload;
+    const invite = res.locals.invite as InviteTokenPayload;
     store.endStaleSessions(config.djDisconnectGraceMs);
     let session = store.get((res.locals.session as RelaySession).id) as RelaySession;
     if (invite.role === "dj" && session.state !== "ended" && session.state !== "expired") {
@@ -392,7 +393,7 @@ export function createApp({
   app.post("/api/session/media-token", requireInvite(config, store), (req, res) => {
     store.endStaleSessions(config.djDisconnectGraceMs);
     const session = store.get((res.locals.session as RelaySession).id) as RelaySession;
-    const invite = res.locals.invite as TokenPayload;
+    const invite = res.locals.invite as InviteTokenPayload;
     if (session.state === "ended" || session.state === "expired") return sendError(res, 410, "This broadcast has ended");
     const sessionExp = Math.floor(new Date(session.expiresAt).getTime() / 1000);
     let listenerId = invite.listenerId;
@@ -417,7 +418,7 @@ export function createApp({
   });
 
   app.post("/api/session/share-link", requireInvite(config, store), (req, res) => {
-    const invite = res.locals.invite as TokenPayload;
+    const invite = res.locals.invite as InviteTokenPayload;
     if (invite.role !== "listener" && invite.role !== "dj") {
       return sendError(res, 403, "DJ or listener access required");
     }
@@ -429,14 +430,13 @@ export function createApp({
       kind: "share",
       role: "listener",
       sessionId: session.id,
-      exp: expiresIn(12 * 60 * 60),
     }, config.tokenSecret);
     const origin = `${req.protocol}://${req.get("host")}`;
     res.json({ url: `${origin}/s/${token}` });
   });
 
   app.get("/api/session/recording", requireInvite(config, store), async (_req, res) => {
-    const invite = res.locals.invite as TokenPayload;
+    const invite = res.locals.invite as InviteTokenPayload;
     if (invite.role !== "listener") return sendError(res, 403, "Listener access required");
     const session = store.get((res.locals.session as RelaySession).id);
     if (!session || !isReplaySession(session)) return sendError(res, 409, "This session does not have a replay");
@@ -454,7 +454,7 @@ export function createApp({
   });
 
   app.get("/api/session/recording/parts/:index", requireInvite(config, store), async (req, res) => {
-    const invite = res.locals.invite as TokenPayload;
+    const invite = res.locals.invite as InviteTokenPayload;
     if (invite.role !== "listener") return sendError(res, 403, "Listener access required");
     const session = store.get((res.locals.session as RelaySession).id);
     if (!session || !isReplaySession(session) || session.recordingDeletedAt) {
@@ -467,7 +467,7 @@ export function createApp({
 
   app.post("/api/session/state", requireInvite(config, store), async (req, res) => {
     const session = res.locals.session as RelaySession;
-    const invite = res.locals.invite as TokenPayload;
+    const invite = res.locals.invite as InviteTokenPayload;
     if (invite.role !== "dj") return sendError(res, 403, "Only the DJ can change broadcast state");
     const requested = req.body?.state;
     if (requested !== "live" && requested !== "interrupted" && requested !== "ended") {
@@ -480,7 +480,6 @@ export function createApp({
         kind: "share",
         role: "listener",
         sessionId: updated.id,
-        exp: Math.floor(new Date(updated.expiresAt).getTime() / 1000),
       }, config.tokenSecret);
       const origin = `${req.protocol}://${req.get("host")}`;
       try {

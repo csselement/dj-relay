@@ -76,11 +76,7 @@ export function ListenerPage() {
         </AppShell>
       );
     }
-    const endedMessage = data.session.endedReason === "dj" ? "The DJ ended this stream." :
-      data.session.endedReason === "owner" ? "This stream was ended by the host." :
-      data.session.endedReason === "timeout" ? "The DJ disconnected and did not return." :
-      "This stream has ended.";
-    return <ListenerMessage title="Broadcast ended" message={endedMessage} />;
+    return <ListenerMessage title="Session concluded" message="This session has concluded." />;
   }
 
   const live = data.session.state === "live";

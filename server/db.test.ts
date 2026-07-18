@@ -44,7 +44,12 @@ describe("SessionStore migrations and lifecycle", () => {
       expect(store.get("legacy-ended")?.listenerHistoryAvailable).toBe(false);
       expect(store.get("legacy-ended")?.recordingRequested).toBe(false);
       expect(store.get("legacy-ready")?.listenerHistoryAvailable).toBe(true);
-      expect(store.get("legacy-expired")).toMatchObject({ state: "expired", listenerHistoryAvailable: false });
+      expect(store.get("legacy-expired")).toMatchObject({
+        state: "ended",
+        endedAt: "2026-07-13T12:00:00.000Z",
+        endedReason: "timeout",
+        listenerHistoryAvailable: false,
+      });
 
       const created = store.create("Tracked session", 4);
       expect(created.listenerHistoryAvailable).toBe(true);

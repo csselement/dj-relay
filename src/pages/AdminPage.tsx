@@ -233,6 +233,10 @@ export function AdminPage() {
           {sessions.map((session) => {
             const active = session.state !== "ended" && session.state !== "expired";
             const recordingLabel = recordingArchiveLabel(session);
+            const stateLabel = active ? session.state : "concluded";
+            const timingLabel = active
+              ? `expires ${new Date(session.expiresAt).toLocaleString()}`
+              : `ended ${new Date(session.endedAt ?? session.expiresAt).toLocaleString()}`;
             const sessionDetails = (
               <>
                 <h3 className="session-row-title">
@@ -252,7 +256,7 @@ export function AdminPage() {
                     </span>
                   )}
                 </h3>
-                <p>{session.state} · {sessionAudienceLabel(session)}{recordingLabel} · expires {new Date(session.expiresAt).toLocaleString()}</p>
+                <p>{stateLabel} · {sessionAudienceLabel(session)}{recordingLabel} · {timingLabel}</p>
               </>
             );
             const sessionDeletable = !active && session.recording.status !== "finalizing";

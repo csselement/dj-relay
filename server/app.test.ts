@@ -6,6 +6,7 @@ import { loadConfig } from "./config.js";
 import { SessionStore } from "./db.js";
 import type { DiscordSessionAnnouncement } from "./discord.js";
 import type { RecordingBackend, RecordingPart } from "./recordings.js";
+import { verifyToken } from "./security.js";
 import type { Mp3Transcoder } from "./transcoding.js";
 
 const passthroughMp3Transcoder: Mp3Transcoder = async (input, output) => {
@@ -203,10 +204,33 @@ describe("Discus API", () => {
     const expired = await owner.post("/api/admin/sessions").send({ name: "Expired producer preview", expiresInHours: 4 });
     store.db.prepare("UPDATE sessions SET expires_at = ? WHERE id = ?")
       .run(new Date(Date.now() - 1_000).toISOString(), expired.body.session.id);
+    const expiredListenerToken = expired.body.listenerUrl.split("/").at(-1);
     await owner.get(`/api/admin/sessions/${expired.body.session.id}/listen`).expect(302).expect("Location", "/listen");
     await owner.get("/api/session").expect(200).expect(({ body }) => {
       expect(body.role).toBe("listener");
-      expect(body.session).toMatchObject({ id: expired.body.session.id, state: "expired" });
+      expect(body.session).toMatchObject({
+        id: expired.body.session.id,
+        state: "ended",
+        endedReason: "timeout",
+      });
+    });
+
+    const concludedListener = request.agent(app);
+    await concludedListener.post("/api/invite/exchange")
+      .send({ token: expiredListenerToken })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.session).toMatchObject({
+          id: expired.body.session.id,
+          state: "ended",
+          recording: { requested: false, status: "off" },
+        });
+      });
+    await concludedListener.get("/api/session").expect(200).expect(({ body }) => {
+      expect(body.session).toMatchObject({ id: expired.body.session.id, state: "ended" });
+    });
+    await concludedListener.get("/api/session/recording").expect(409, {
+      error: "This session does not have a replay",
     });
   });
 
@@ -310,6 +334,8 @@ describe("Discus API", () => {
       sessionName: "Discord Relay",
     });
     expect(announcements[0].listenerUrl).toMatch(/^https:\/\/relay\.example\/s\/[A-Za-z0-9_.-]+$/);
+    const announcementToken = announcements[0].listenerUrl.split("/").at(-1);
+    expect(verifyToken(announcementToken, config.tokenSecret)).not.toHaveProperty("exp");
 
     const listener = request.agent(app);
     await listener.post("/api/invite/exchange")
@@ -377,7 +403,7 @@ describe("Discus API", () => {
   });
 
   it("lets DJs and listeners create a session-scoped listener invite", async () => {
-    const { app, store } = testApp(); stores.push(store);
+    const { app, store, config } = testApp(); stores.push(store);
     const owner = request.agent(app);
     await owner.post("/api/admin/login").send({ password: "owner-test-password" });
     const created = await owner.post("/api/admin/sessions").send({ name: "Shared relay", expiresInHours: 4 });
@@ -391,6 +417,12 @@ describe("Discus API", () => {
 
     const invitedListener = request.agent(app);
     const sharedToken = shared.body.url.split("/").at(-1);
+    expect(verifyToken(sharedToken, config.tokenSecret)).toMatchObject({
+      kind: "share",
+      role: "listener",
+      sessionId: created.body.session.id,
+    });
+    expect(verifyToken(sharedToken, config.tokenSecret)).not.toHaveProperty("exp");
     await invitedListener.post("/api/invite/exchange").send({ token: sharedToken }).expect(200).expect(({ body }) => {
       expect(body).toMatchObject({ role: "listener", destination: "/listen" });
       expect(body.session.id).toBe(created.body.session.id);
