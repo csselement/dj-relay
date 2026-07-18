@@ -15,7 +15,7 @@ Discus is a private, browser-based stereo audio relay for remote DJs. It publish
 
 ## Screenshot
 
-![Discus producer console showing session creation and session history](docs/images/discus-admin.jpg)
+![Discus homepage explaining the private audio relay workflow for producers, DJs, and listeners](docs/images/discus-homepage.png)
 
 ## Development
 
