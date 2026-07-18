@@ -261,6 +261,8 @@ test("producer opts into recording and the original listener link becomes a repl
   const deleteSessionButton = archiveRow.getByRole("button", { name: `Delete session ${sessionName}` });
   await expect(deleteSessionButton).toHaveAttribute("title", "Delete session");
   await expect(deleteSessionButton.locator("svg")).toHaveCount(1);
+  await expect(deleteSessionButton).toHaveCSS("border-top-width", "0px");
+  await expect(deleteSessionButton).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   expect((await deleteSessionButton.textContent())?.trim()).toBe("");
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);

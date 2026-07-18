@@ -934,15 +934,14 @@ h2 { letter-spacing: -.025em; }
   height: 40px;
   min-height: 40px;
   padding: 0;
-  border-color: var(--danger-border);
-  background: var(--red-soft);
+  border: 0;
+  background: transparent;
   color: var(--red);
   box-shadow: none;
 }
 .ant-btn.session-delete-button:not(:disabled):hover,
 .ant-btn.session-delete-button:not(:disabled):focus-visible {
-  border-color: var(--red);
-  background: var(--danger-hover);
+  background: transparent;
   color: var(--red);
 }
 .ant-btn.session-delete-button:not(:disabled):active { transform: scale(.95); }
