@@ -274,6 +274,8 @@ a { color: inherit; }
 }
 
 .app-shell {
+  position: relative;
+  isolation: isolate;
   min-height: 100dvh;
   display: grid;
   grid-template-rows: auto 1fr auto;
@@ -281,6 +283,24 @@ a { color: inherit; }
 }
 
 .app-shell-no-footer { grid-template-rows: auto 1fr; }
+.app-shell:not(.marketing-shell)::before {
+  position: fixed;
+  z-index: 0;
+  inset: 0;
+  background-color: var(--canvas);
+  background-image:
+    linear-gradient(var(--content-background-overlay), var(--content-background-overlay)),
+    url("./assets/main-discobolus-background.jpg");
+  background-position: center 38%;
+  background-size: cover;
+  content: "";
+  pointer-events: none;
+}
+.app-shell:not(.marketing-shell) > :where(.app-header, .app-content, .app-footer) {
+  position: relative;
+  z-index: 1;
+}
+.app-shell:not(.marketing-shell) > :where(.app-header, .app-footer) { background-color: var(--canvas); }
 
 .app-header {
   padding: 0 clamp(20px, 5.26vw, 88px);
@@ -320,12 +340,7 @@ a { color: inherit; }
   display: grid;
   place-items: center;
   padding: clamp(40px, 8vh, 84px) clamp(20px, 4vw, 48px);
-  background-color: var(--canvas);
-  background-image:
-    linear-gradient(var(--content-background-overlay), var(--content-background-overlay)),
-    url("./assets/main-discobolus-background.jpg");
-  background-position: center 38%;
-  background-size: cover;
+  background: transparent;
 }
 
 .app-footer {

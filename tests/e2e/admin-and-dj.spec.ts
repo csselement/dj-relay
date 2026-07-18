@@ -23,6 +23,12 @@ test("owner creates a session and DJ reaches the ready screen", async ({ page, c
   await page.getByLabel("Producer password").fill(ownerPassword);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("heading", { name: "Sessions" })).toBeVisible();
+  const backgroundLayer = await page.locator(".app-shell").evaluate((element) => {
+    const style = getComputedStyle(element, "::before");
+    return { position: style.position, size: style.backgroundSize };
+  });
+  expect(backgroundLayer).toEqual({ position: "fixed", size: "cover, cover" });
+  await expect(page.locator(".app-content")).toHaveCSS("background-image", "none");
 
   await page.getByLabel("Session name").fill(sessionName);
   await page.getByRole("switch", { name: "Record" }).click();
