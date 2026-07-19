@@ -77,7 +77,7 @@ describe("MediaMtxRecordingBackend", () => {
     }
   });
 
-  it("finalizes every source segment, validates the MP3, and permanently retains the originals", async () => {
+  it("deletes every source segment only after the complete MP3 is validated and published", async () => {
     const root = await mkdtemp(join(tmpdir(), "discus-finalize-"));
     const recordingsPath = join(root, "recordings");
     const playbackPath = join(root, "playback");
@@ -94,6 +94,7 @@ describe("MediaMtxRecordingBackend", () => {
     }
 
     const deletedStarts: string[] = [];
+    let availableStarts = [...sourceStarts];
     vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = new URL(String(input));
       if (url.pathname === "/list") {
@@ -102,12 +103,22 @@ describe("MediaMtxRecordingBackend", () => {
         });
       }
       if (url.pathname.includes("/v3/recordings/get/")) {
-        return new Response(JSON.stringify({ segments: sourceStarts.map((start) => ({ start })) }), {
+        return new Response(JSON.stringify({ segments: availableStarts.map((start) => ({ start })) }), {
           headers: { "Content-Type": "application/json" },
         });
       }
       if (url.pathname === "/v3/recordings/deletesegment" && init?.method === "DELETE") {
-        deletedStarts.push(url.searchParams.get("start") ?? "");
+        const start = url.searchParams.get("start") ?? "";
+        const metadata = JSON.parse(await readFile(join(playbackPath, "202607171300_recorded-session.json"), "utf8"));
+        expect(metadata).toMatchObject({
+          schemaVersion: 3,
+          sourceDeletionPolicy: "after_validated_mp3",
+          validation: { fullDecode: true, sha256: expect.stringMatching(/^[a-f0-9]{64}$/) },
+        });
+        deletedStarts.push(start);
+        availableStarts = availableStarts.filter((candidate) => candidate !== start);
+        const filename = start === sourceStarts[0] ? "2026-07-17_20-00-00-123400.mp4" : "2026-07-17_20-00-00-373400.mp4";
+        await rm(join(sessionPath, filename), { force: true });
         return new Response(JSON.stringify({ ok: true }), { headers: { "Content-Type": "application/json" } });
       }
       throw new Error(`Unexpected request: ${url}`);
@@ -143,7 +154,7 @@ describe("MediaMtxRecordingBackend", () => {
       expect(response.status).toBe(206);
       expect(response.headers.get("content-type")).toBe("audio/mpeg");
       expect(Buffer.from(await response.arrayBuffer()).toString("ascii")).toBe("ID3");
-      expect(deletedStarts).toEqual([]);
+      expect([...deletedStarts].sort()).toEqual(sourceStarts);
       const restartedBackend = new MediaMtxRecordingBackend(
         "http://playback:9996",
         "http://media:9997",
@@ -151,13 +162,13 @@ describe("MediaMtxRecordingBackend", () => {
         playbackPath,
       );
       await expect(restartedBackend.finalize(session)).resolves.toBe(false);
-      expect(deletedStarts).toEqual([]);
-      await expect(stat(join(sessionPath, "2026-07-17_20-00-00-123400.mp4"))).resolves.toMatchObject({ size: expect.any(Number) });
-      await expect(stat(join(sessionPath, "2026-07-17_20-00-00-373400.mp4"))).resolves.toMatchObject({ size: expect.any(Number) });
+      expect([...deletedStarts].sort()).toEqual(sourceStarts);
+      await expect(stat(join(sessionPath, "2026-07-17_20-00-00-123400.mp4"))).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(stat(join(sessionPath, "2026-07-17_20-00-00-373400.mp4"))).rejects.toMatchObject({ code: "ENOENT" });
       await expect(stat(join(playbackPath, "202607171300_recorded-session.mp3"))).resolves.toMatchObject({ size: expect.any(Number) });
       const metadata = JSON.parse(await readFile(join(playbackPath, "202607171300_recorded-session.json"), "utf8"));
       expect(metadata).toMatchObject({
-        schemaVersion: 2,
+        schemaVersion: 3,
         sessionId: "session-1",
         sessionName: "Recorded Session!",
         mediaPath: "recording-session-test",
@@ -173,7 +184,7 @@ describe("MediaMtxRecordingBackend", () => {
         sourcePartCount: 2,
         sourceStarts,
         bytes: expect.any(Number),
-        sourceRetention: "preserved_until_producer_deletion",
+        sourceDeletionPolicy: "after_validated_mp3",
         validation: {
           validatedAt: expect.any(String),
           actualDurationSeconds: expect.any(Number),
@@ -236,7 +247,7 @@ describe("MediaMtxRecordingBackend", () => {
     }
   });
 
-  it("revalidates an existing archive after restart without deleting its retained source", async () => {
+  it("revalidates an existing archive before cleaning up its retained source", async () => {
     const root = await mkdtemp(join(tmpdir(), "discus-revalidate-"));
     const recordingsPath = join(root, "recordings");
     const playbackPath = join(root, "playback");
@@ -280,7 +291,29 @@ describe("MediaMtxRecordingBackend", () => {
         bytes: audio.size,
       })),
     ]);
-    const fetchMock = vi.fn(async () => { throw new Error("MediaMTX deletion must not run during revalidation"); });
+    const deletedStarts: string[] = [];
+    let sourceAvailable = true;
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname.includes("/v3/recordings/get/")) {
+        return new Response(JSON.stringify({
+          segments: sourceAvailable ? [{ start: "2026-07-17T19:05:00.000Z" }] : [],
+        }), { headers: { "Content-Type": "application/json" } });
+      }
+      if (url.pathname === "/v3/recordings/deletesegment" && init?.method === "DELETE") {
+        const metadata = JSON.parse(await readFile(metadataPath, "utf8"));
+        expect(metadata).toMatchObject({
+          schemaVersion: 3,
+          sourceDeletionPolicy: "after_validated_mp3",
+          validation: { fullDecode: true },
+        });
+        deletedStarts.push(url.searchParams.get("start") ?? "");
+        sourceAvailable = false;
+        await rm(sourcePath, { force: true });
+        return new Response(JSON.stringify({ ok: true }), { headers: { "Content-Type": "application/json" } });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     try {
@@ -291,12 +324,12 @@ describe("MediaMtxRecordingBackend", () => {
         playbackPath,
       );
       await expect(backend.finalize(endedSession)).resolves.toBe(false);
-      expect(fetchMock).not.toHaveBeenCalled();
-      await expect(stat(sourcePath)).resolves.toMatchObject({ size: expect.any(Number) });
+      expect(deletedStarts).toEqual(["2026-07-17T19:05:00.000Z"]);
+      await expect(stat(sourcePath)).rejects.toMatchObject({ code: "ENOENT" });
       const metadata = JSON.parse(await readFile(metadataPath, "utf8"));
       expect(metadata).toMatchObject({
-        schemaVersion: 2,
-        sourceRetention: "preserved_until_producer_deletion",
+        schemaVersion: 3,
+        sourceDeletionPolicy: "after_validated_mp3",
         validation: {
           sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
           fullDecode: true,
@@ -341,8 +374,8 @@ describe("MediaMtxRecordingBackend", () => {
       }]);
       const metadata = JSON.parse(await readFile(join(playbackPath, "202607171205_recorded-session.json"), "utf8"));
       expect(metadata).toMatchObject({
-        schemaVersion: 2,
-        sourceRetention: "preserved_until_producer_deletion",
+        schemaVersion: 3,
+        sourceDeletionPolicy: "after_validated_mp3",
         validation: {
           sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
           fullDecode: true,
@@ -354,7 +387,7 @@ describe("MediaMtxRecordingBackend", () => {
     }
   });
 
-  it("deletes source segments only through explicit archive deletion and reports partial failures", async () => {
+  it("reports partial source-deletion failures during explicit archive deletion", async () => {
     const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = new URL(String(input));
       if (init?.method === "DELETE") {

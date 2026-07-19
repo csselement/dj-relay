@@ -111,7 +111,7 @@ type Mp3Validation = {
 };
 
 type ArchiveMetadata = {
-  schemaVersion: 1 | 2;
+  schemaVersion: 1 | 2 | 3;
   sessionId: string;
   sessionName: string;
   mediaPath: string;
@@ -130,6 +130,7 @@ type ArchiveMetadata = {
   finalizedAt: string;
   bytes: number;
   sourceRetention?: "preserved_until_producer_deletion";
+  sourceDeletionPolicy?: "after_validated_mp3";
   validation?: Mp3Validation;
 };
 
@@ -258,10 +259,16 @@ export class MediaMtxRecordingBackend implements RecordingBackend {
         await this.migrateLegacyArchive(session, ready);
         return false;
       }
-      if (!hasDurableValidation(ready.metadata)) {
-        const validation = await validateMp3(ready.audioPath, ready.metadata.durationSeconds);
-        await this.upgradeArchiveValidation(ready, validation);
+      const alreadyValidated = hasDurableValidation(ready.metadata);
+      const validation = alreadyValidated ? ready.metadata.validation as Mp3Validation :
+        await validateMp3(ready.audioPath, ready.metadata.durationSeconds);
+      if (!alreadyValidated || !hasSafeSourceDeletionPolicy(ready.metadata)) {
+        await this.upgradeArchiveMetadata(ready, validation);
       }
+      const sourceStarts = await this.listSourceStarts(path);
+      if (sourceStarts.length === 0) return false;
+      assertSourcesCoveredByArchive(ready.metadata.sourceStarts, sourceStarts);
+      await this.deleteSources(path, sourceStarts);
       return false;
     }
 
@@ -292,7 +299,8 @@ export class MediaMtxRecordingBackend implements RecordingBackend {
       const validation = await validateMp3(outputPath, durationSeconds);
       await this.publishArchive(session, outputPath, durationSeconds, sourceStarts, validation, id);
       const published = await this.resolveArchive(path);
-      if (!published || published.metadata.durationSeconds !== durationSeconds || !hasDurableValidation(published.metadata)) {
+      if (!published || published.metadata.durationSeconds !== durationSeconds ||
+        !hasDurableValidation(published.metadata) || !hasSafeSourceDeletionPolicy(published.metadata)) {
         throw new Error("Finalized MP3 archive could not be verified after publishing");
       }
       const currentSourceStarts = await this.listSourceStarts(path);
@@ -300,6 +308,7 @@ export class MediaMtxRecordingBackend implements RecordingBackend {
         currentSourceStarts.some((start, index) => start !== sourceStarts[index])) {
         throw new Error("Recording source segments changed during MP3 finalization");
       }
+      await this.deleteSources(path, currentSourceStarts);
       return true;
     } finally {
       await Promise.all([
@@ -372,7 +381,7 @@ export class MediaMtxRecordingBackend implements RecordingBackend {
     await rename(sourcePath, audioPath);
     const audio = await stat(audioPath);
     const metadata: ArchiveMetadata = {
-      schemaVersion: 2,
+      schemaVersion: 3,
       sessionId: session.id,
       sessionName: session.name,
       mediaPath: session.mediaPath,
@@ -390,7 +399,7 @@ export class MediaMtxRecordingBackend implements RecordingBackend {
       sourceStarts,
       finalizedAt: new Date().toISOString(),
       bytes: audio.size,
-      sourceRetention: "preserved_until_producer_deletion",
+      sourceDeletionPolicy: "after_validated_mp3",
       validation,
     };
     const metadataTemp = `${metadataPath}.${id}`;
@@ -417,16 +426,18 @@ export class MediaMtxRecordingBackend implements RecordingBackend {
     await rm(archive.metadataPath, { force: true });
   }
 
-  private async upgradeArchiveValidation(archive: ResolvedArchive, validation: Mp3Validation): Promise<void> {
+  private async upgradeArchiveMetadata(archive: ResolvedArchive, validation: Mp3Validation): Promise<void> {
     const metadata = JSON.parse(await readFile(archive.metadataPath, "utf8")) as ArchiveMetadata;
     const id = randomUUID();
     const temporaryPath = `${archive.metadataPath}.${id}`;
-    await writeFile(temporaryPath, `${JSON.stringify({
+    const updated: ArchiveMetadata = {
       ...metadata,
-      schemaVersion: 2,
-      sourceRetention: "preserved_until_producer_deletion",
+      schemaVersion: 3,
+      sourceDeletionPolicy: "after_validated_mp3",
       validation,
-    }, null, 2)}\n`);
+    };
+    delete updated.sourceRetention;
+    await writeFile(temporaryPath, `${JSON.stringify(updated, null, 2)}\n`);
     await rename(temporaryPath, archive.metadataPath);
   }
 
@@ -493,11 +504,21 @@ async function runProcess(command: string, args: string[]): Promise<string> {
 
 function hasDurableValidation(metadata: ResolvedArchive["metadata"]): boolean {
   const validation = metadata.validation;
-  if (metadata.schemaVersion !== 2 || metadata.sourceRetention !== "preserved_until_producer_deletion" ||
+  if ((metadata.schemaVersion !== 2 && metadata.schemaVersion !== 3) ||
     !validation || validation.fullDecode !== true || !/^[a-f0-9]{64}$/.test(validation.sha256) ||
     !Number.isFinite(validation.actualDurationSeconds) || Number.isNaN(Date.parse(validation.validatedAt))) return false;
   const tolerance = Math.max(2, metadata.durationSeconds * 0.01);
   return Math.abs(validation.actualDurationSeconds - metadata.durationSeconds) <= tolerance;
+}
+
+function hasSafeSourceDeletionPolicy(metadata: ResolvedArchive["metadata"]): boolean {
+  return metadata.schemaVersion === 3 && metadata.sourceDeletionPolicy === "after_validated_mp3";
+}
+
+function assertSourcesCoveredByArchive(expected: string[] | undefined, remaining: string[]): void {
+  if (!expected?.length || remaining.some((start) => !expected.includes(start))) {
+    throw new Error("Validated MP3 does not account for every remaining recording source segment");
+  }
 }
 
 async function sha256File(path: string): Promise<string> {
