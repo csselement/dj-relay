@@ -127,7 +127,8 @@ type ArchiveMetadata = {
 type ResolvedArchive = {
   audioPath: string;
   metadataPath: string;
-  metadata: Pick<ArchiveMetadata, "filename" | "startedAt" | "durationSeconds">;
+  metadata: Pick<ArchiveMetadata, "filename" | "startedAt" | "durationSeconds"> &
+    Partial<Pick<ArchiveMetadata, "sourceStarts">>;
   legacy: boolean;
 };
 
@@ -245,15 +246,28 @@ export class MediaMtxRecordingBackend implements RecordingBackend {
     if (!this.recordingsPath || !this.playbackPath || !/^[a-zA-Z0-9_-]+$/.test(path)) return false;
     const ready = await this.resolveArchive(path);
     if (ready) {
-      if (ready.legacy) await this.migrateLegacyArchive(session, ready);
-      await this.deleteSources(path);
+      if (ready.legacy) {
+        await this.migrateLegacyArchive(session, ready);
+        return false;
+      }
+      const sourceStarts = await this.listSourceStarts(path);
+      if (sourceStarts.length === 0) return false;
+      if (!ready.metadata.sourceStarts || sourceStarts.length !== ready.metadata.sourceStarts.length ||
+        sourceStarts.some((start, index) => start !== ready.metadata.sourceStarts?.[index])) {
+        throw new Error("Finalized MP3 does not account for every remaining recording source segment");
+      }
+      await validateMp3(ready.audioPath, ready.metadata.durationSeconds);
+      await this.deleteSources(path, sourceStarts);
       return false;
     }
 
-    const sources = await this.listSourceParts(path);
-    if (sources.length === 0) return false;
-    const files = sources.map((part) => {
-      const filename = recordingFilename(part.start);
+    const [playbackParts, sourceStarts] = await Promise.all([
+      this.listSourceParts(path),
+      this.listSourceStarts(path),
+    ]);
+    if (playbackParts.length === 0 || sourceStarts.length === 0) return false;
+    const files = sourceStarts.map((start) => {
+      const filename = recordingFilename(start);
       if (!filename) throw new Error("Recording source timestamp was invalid");
       return join(this.recordingsPath as string, path, filename);
     });
@@ -262,7 +276,7 @@ export class MediaMtxRecordingBackend implements RecordingBackend {
     const id = randomUUID();
     const concatPath = join(tmpdir(), `discus-${id}.txt`);
     const outputPath = join(this.playbackPath, `${path}.${id}.mp3`);
-    const durationSeconds = sources.reduce((total, part) => total + part.durationSeconds, 0);
+    const durationSeconds = playbackParts.reduce((total, part) => total + part.durationSeconds, 0);
     const concat = files.map((file) => `file '${file.replaceAll("'", "'\\''")}'`).join("\n");
     await writeFile(concatPath, `${concat}\n`, { mode: 0o600 });
     try {
@@ -272,8 +286,17 @@ export class MediaMtxRecordingBackend implements RecordingBackend {
         outputPath,
       ]);
       await validateMp3(outputPath, durationSeconds);
-      await this.publishArchive(session, outputPath, durationSeconds, sources, id);
-      await this.deleteSources(path);
+      await this.publishArchive(session, outputPath, durationSeconds, sourceStarts, id);
+      const published = await this.resolveArchive(path);
+      if (!published || published.metadata.durationSeconds !== durationSeconds) {
+        throw new Error("Finalized MP3 archive could not be verified after publishing");
+      }
+      const currentSourceStarts = await this.listSourceStarts(path);
+      if (currentSourceStarts.length !== sourceStarts.length ||
+        currentSourceStarts.some((start, index) => start !== sourceStarts[index])) {
+        throw new Error("Recording source segments changed during MP3 finalization");
+      }
+      await this.deleteSources(path, currentSourceStarts);
       return true;
     } finally {
       await Promise.all([
@@ -293,7 +316,8 @@ export class MediaMtxRecordingBackend implements RecordingBackend {
       const [raw] = await Promise.all([readFile(metadataPath, "utf8"), stat(audioPath)]);
       const metadata = JSON.parse(raw) as Partial<ArchiveMetadata>;
       if (metadata.mediaPath !== path || typeof metadata.filename !== "string" || typeof metadata.startedAt !== "string" ||
-        typeof metadata.durationSeconds !== "number" || metadata.durationSeconds <= 0) throw new Error("Archive metadata was invalid");
+        typeof metadata.durationSeconds !== "number" || metadata.durationSeconds <= 0 || !Array.isArray(metadata.sourceStarts) ||
+        metadata.sourceStarts.some((start) => typeof start !== "string")) throw new Error("Archive metadata was invalid");
       return { audioPath, metadataPath, metadata: metadata as ArchiveMetadata, legacy: false };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
@@ -323,9 +347,9 @@ export class MediaMtxRecordingBackend implements RecordingBackend {
     session: RelaySession,
     sourcePath: string,
     durationSeconds: number,
-    sources: RecordingPart[],
+    sourceStarts: string[],
     id: string,
-    sourcePartCount: number | null = sources.length || null,
+    sourcePartCount: number | null = sourceStarts.length || null,
   ): Promise<void> {
     if (!this.playbackPath) throw new Error("Playback archive path is unavailable");
     await mkdir(join(this.playbackPath, ".index"), { recursive: true });
@@ -349,7 +373,7 @@ export class MediaMtxRecordingBackend implements RecordingBackend {
       mediaPath: session.mediaPath,
       filename,
       archiveTimeZone: ARCHIVE_TIME_ZONE,
-      startedAt: session.startedAt ?? sources[0]?.start ?? session.createdAt,
+      startedAt: session.startedAt ?? sourceStarts[0] ?? session.createdAt,
       endedAt: session.endedAt,
       durationSeconds,
       codec: "mp3",
@@ -358,7 +382,7 @@ export class MediaMtxRecordingBackend implements RecordingBackend {
       channels: 2,
       sourceFormat: "fmp4/opus",
       sourcePartCount,
-      sourceStarts: sources.map((part) => part.start),
+      sourceStarts,
       finalizedAt: new Date().toISOString(),
       bytes: audio.size,
     };
@@ -374,23 +398,24 @@ export class MediaMtxRecordingBackend implements RecordingBackend {
   private async migrateLegacyArchive(session: RelaySession, archive: ResolvedArchive): Promise<void> {
     await validateMp3(archive.audioPath, archive.metadata.durationSeconds);
     const id = randomUUID();
-    await this.publishArchive(session, archive.audioPath, archive.metadata.durationSeconds, [{
-      start: archive.metadata.startedAt,
-      durationSeconds: archive.metadata.durationSeconds,
-    }], id, null);
+    await this.publishArchive(session, archive.audioPath, archive.metadata.durationSeconds, [archive.metadata.startedAt], id, null);
     await rm(archive.metadataPath, { force: true });
   }
 
-  private async deleteSources(path: string): Promise<void> {
+  private async listSourceStarts(path: string): Promise<string[]> {
     const getUrl = new URL(`/v3/recordings/get/${encodeURIComponent(path)}`, this.apiUrl);
     const response = await fetch(getUrl, { signal: AbortSignal.timeout(2500) });
-    if (response.status === 404) return;
+    if (response.status === 404) return [];
     if (!response.ok) throw await responseError(response, "Recording lookup failed");
     const payload = await response.json() as RecordingApiResponse;
-    const starts = Array.isArray(payload.segments) ? payload.segments.flatMap((segment) =>
-      typeof segment.start === "string" ? [segment.start] : []) : [];
+    if (!Array.isArray(payload.segments)) throw new Error("Recording segment list was invalid");
+    return payload.segments.flatMap((segment) =>
+      typeof segment.start === "string" ? [segment.start] : []).sort();
+  }
 
-    const results = await Promise.allSettled(starts.map(async (start) => {
+  private async deleteSources(path: string, starts?: string[]): Promise<void> {
+    const sourceStarts = starts ?? await this.listSourceStarts(path);
+    const results = await Promise.allSettled(sourceStarts.map(async (start) => {
       const deleteUrl = new URL("/v3/recordings/deletesegment", this.apiUrl);
       deleteUrl.searchParams.set("path", path);
       deleteUrl.searchParams.set("start", start);
@@ -453,8 +478,12 @@ async function validateMp3(path: string, expectedDuration: number): Promise<void
   const tolerance = Math.max(2, expectedDuration * 0.01);
   if (stream?.codec_name !== "mp3" || stream.channels !== 2 || stream.sample_rate !== "48000" ||
     !Number.isFinite(duration) || Math.abs(duration - expectedDuration) > tolerance) {
-    throw new Error("Finalized MP3 failed codec, channel, sample-rate, or duration validation");
+    throw new Error(`Finalized MP3 failed validation (expected ${expectedDuration.toFixed(3)}s, got ${Number.isFinite(duration) ? `${duration.toFixed(3)}s` : "invalid duration"})`);
   }
+  await runProcess("ffmpeg", [
+    "-hide_banner", "-loglevel", "error", "-i", path,
+    "-map", "0:a:0", "-f", "null", "-",
+  ]);
 }
 
 export class RecordingFinalizer {

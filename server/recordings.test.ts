@@ -83,24 +83,26 @@ describe("MediaMtxRecordingBackend", () => {
     const playbackPath = join(root, "playback");
     const sessionPath = join(recordingsPath, "recording-session-test");
     await Promise.all([mkdir(sessionPath, { recursive: true }), mkdir(playbackPath, { recursive: true })]);
-    const sourcePath = join(sessionPath, "2026-07-17_20-00-00-123400.mp4");
-    const source = spawnSync("ffmpeg", [
-      "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo",
-      "-t", "0.25", "-c:a", "libopus", "-b:a", "192k", "-f", "mp4",
-      "-movflags", "frag_keyframe+empty_moov+default_base_moof", sourcePath,
-    ]);
-    if (source.status !== 0) throw new Error(source.stderr.toString() || "Could not create finalization fixture");
+    const sourceStarts = ["2026-07-17T20:00:00.1234Z", "2026-07-17T20:00:00.3734Z"];
+    for (const filename of ["2026-07-17_20-00-00-123400.mp4", "2026-07-17_20-00-00-373400.mp4"]) {
+      const source = spawnSync("ffmpeg", [
+        "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo",
+        "-t", "0.25", "-c:a", "libopus", "-b:a", "192k", "-f", "mp4",
+        "-movflags", "frag_keyframe+empty_moov+default_base_moof", join(sessionPath, filename),
+      ]);
+      if (source.status !== 0) throw new Error(source.stderr.toString() || "Could not create finalization fixture");
+    }
 
     const deletedStarts: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = new URL(String(input));
       if (url.pathname === "/list") {
-        return new Response(JSON.stringify([{ start: "2026-07-17T20:00:00.1234Z", duration: 0.25 }]), {
+        return new Response(JSON.stringify([{ start: sourceStarts[0], duration: 0.5 }]), {
           headers: { "Content-Type": "application/json" },
         });
       }
       if (url.pathname.includes("/v3/recordings/get/")) {
-        return new Response(JSON.stringify({ segments: [{ start: "2026-07-17T20:00:00.1234Z" }] }), {
+        return new Response(JSON.stringify({ segments: sourceStarts.map((start) => ({ start })) }), {
           headers: { "Content-Type": "application/json" },
         });
       }
@@ -128,7 +130,7 @@ describe("MediaMtxRecordingBackend", () => {
       await expect(backend.listParts("recording-session-test")).resolves.toEqual([
         {
           start: "2026-07-17T20:00:00.1234Z",
-          durationSeconds: 0.25,
+          durationSeconds: 0.5,
           filename: "202607171300_recorded-session.mp3",
         },
       ]);
@@ -141,7 +143,7 @@ describe("MediaMtxRecordingBackend", () => {
       expect(response.status).toBe(206);
       expect(response.headers.get("content-type")).toBe("audio/mpeg");
       expect(Buffer.from(await response.arrayBuffer()).toString("ascii")).toBe("ID3");
-      expect(deletedStarts).toEqual(["2026-07-17T20:00:00.1234Z"]);
+      expect(deletedStarts).toEqual(sourceStarts);
       await expect(stat(join(playbackPath, "202607171300_recorded-session.mp3"))).resolves.toMatchObject({ size: expect.any(Number) });
       const metadata = JSON.parse(await readFile(join(playbackPath, "202607171300_recorded-session.json"), "utf8"));
       expect(metadata).toMatchObject({
@@ -152,16 +154,66 @@ describe("MediaMtxRecordingBackend", () => {
         filename: "202607171300_recorded-session.mp3",
         archiveTimeZone: "America/Los_Angeles",
         startedAt: "2026-07-17T20:00:00.1234Z",
-        durationSeconds: 0.25,
+        durationSeconds: 0.5,
         codec: "mp3",
         bitrateKbps: 192,
         sampleRateHz: 48_000,
         channels: 2,
         sourceFormat: "fmp4/opus",
-        sourcePartCount: 1,
-        sourceStarts: ["2026-07-17T20:00:00.1234Z"],
+        sourcePartCount: 2,
+        sourceStarts,
         bytes: expect.any(Number),
       });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves every source segment when the MP3 is incomplete", async () => {
+    const root = await mkdtemp(join(tmpdir(), "discus-incomplete-"));
+    const recordingsPath = join(root, "recordings");
+    const playbackPath = join(root, "playback");
+    const sessionPath = join(recordingsPath, "recording-session-test");
+    await Promise.all([mkdir(sessionPath, { recursive: true }), mkdir(playbackPath, { recursive: true })]);
+    const sourceStart = "2026-07-17T20:00:00.1234Z";
+    const sourcePath = join(sessionPath, "2026-07-17_20-00-00-123400.mp4");
+    const source = spawnSync("ffmpeg", [
+      "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo",
+      "-t", "0.25", "-c:a", "libopus", "-b:a", "192k", "-f", "mp4",
+      "-movflags", "frag_keyframe+empty_moov+default_base_moof", sourcePath,
+    ]);
+    if (source.status !== 0) throw new Error(source.stderr.toString() || "Could not create incomplete fixture");
+
+    const deletedStarts: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/list") {
+        return new Response(JSON.stringify([{ start: sourceStart, duration: 10 }]), {
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.pathname.includes("/v3/recordings/get/")) {
+        return new Response(JSON.stringify({ segments: [{ start: sourceStart }] }), {
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.pathname === "/v3/recordings/deletesegment" && init?.method === "DELETE") {
+        deletedStarts.push(url.searchParams.get("start") ?? "");
+        return new Response(JSON.stringify({ ok: true }), { headers: { "Content-Type": "application/json" } });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+
+    try {
+      const backend = new MediaMtxRecordingBackend(
+        "http://playback:9996",
+        "http://media:9997",
+        recordingsPath,
+        playbackPath,
+      );
+      await expect(backend.finalize(endedSession)).rejects.toThrow("Finalized MP3 failed validation");
+      expect(deletedStarts).toEqual([]);
+      await expect(stat(sourcePath)).resolves.toMatchObject({ size: expect.any(Number) });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
