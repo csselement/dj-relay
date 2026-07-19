@@ -197,6 +197,9 @@ describe("created-link feedback", () => {
   it("uses contextual button names and an atomic announcement after copying", async () => {
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: vi.fn(async () => undefined) } });
     render(<CopyLink label="DJ invite" copyName="DJ link" value="https://example.test/s/dj" />);
+    expect(screen.getByRole("link", { name: "Open DJ link in a new tab" })).toHaveAttribute("href", "https://example.test/s/dj");
+    expect(screen.getByRole("link", { name: "Open DJ link in a new tab" })).toHaveAttribute("target", "_blank");
+    expect(screen.getByRole("link", { name: "Open DJ link in a new tab" })).toHaveAttribute("rel", "noopener noreferrer");
     fireEvent.click(screen.getByRole("button", { name: "Copy DJ link" }));
     expect(await screen.findByRole("button", { name: "DJ link copied" })).toBeInTheDocument();
     const announcement = screen.getByRole("status");
@@ -209,6 +212,8 @@ describe("created-link feedback", () => {
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: vi.fn(async () => { throw new Error("denied"); }) } });
     Object.defineProperty(document, "execCommand", { configurable: true, value: vi.fn(() => false) });
     render(<CopyLink label="Listener invite" copyName="listener link" value="https://example.test/s/listener" />);
+    expect(screen.getByRole("link", { name: "Open listener link in a new tab" })).toHaveAttribute("href", "https://example.test/s/listener");
+    expect(screen.getByRole("link", { name: "Open listener link in a new tab" })).toHaveAttribute("target", "_blank");
     fireEvent.click(screen.getByRole("button", { name: "Copy listener link" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Could not copy the listener link");
   });

@@ -433,7 +433,16 @@ export function CopyLink({ label, copyName, value }: { label: string; copyName: 
   return (
     <div className="copy-row-wrap">
       <div className="copy-row">
-        <div><strong>{label}</strong><code>{value}</code></div>
+        <div>
+          <strong>{label}</strong>
+          <a
+            className="copy-link-value"
+            href={value}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={`Open ${copyName} in a new tab`}
+          ><code>{value}</code></a>
+        </div>
         <Button className="copy-button" aria-label={copied ? copiedLabel : copyLabel} onClick={() => void copy()}>
           <span className="t-icon-swap" data-state={copied ? "b" : "a"} aria-hidden="true"><CopySimple className="t-icon" data-icon="a" size={17} weight="bold" /><Check className="t-icon" data-icon="b" size={17} weight="bold" /></span>
           <AnimatedText value={copied ? copiedLabel : copyLabel} />

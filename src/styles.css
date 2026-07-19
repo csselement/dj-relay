@@ -856,6 +856,19 @@ h2 { letter-spacing: -.025em; }
   border-top: 1px solid var(--success-panel-divider);
 }
 .copy-row strong { display: block; margin-bottom: 3px; font-size: 13px; }
+.copy-row > div { min-width: 0; }
+.copy-link-value {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  color: var(--muted-strong);
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+  transition: color 160ms ease, text-decoration-color 160ms ease;
+}
+.copy-link-value:hover { color: var(--ink); text-decoration-color: currentColor; }
+.copy-link-value:focus-visible { border-radius: 2px; outline: 3px solid var(--focus-ring); outline-offset: 3px; }
 .copy-row code {
   display: block;
   max-width: 760px;

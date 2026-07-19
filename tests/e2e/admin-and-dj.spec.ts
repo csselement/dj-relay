@@ -38,6 +38,17 @@ test("owner creates a session and DJ reaches the ready screen", async ({ page, c
   const listenerUrl = await page.locator(".copy-row").filter({ hasText: "Listener invite" }).locator("code").textContent();
   expect(djUrl).toBeTruthy();
   expect(listenerUrl).toBeTruthy();
+  const djInviteLink = page.getByRole("link", { name: "Open DJ link in a new tab" });
+  const listenerInviteLink = page.getByRole("link", { name: "Open listener link in a new tab" });
+  await expect(djInviteLink).toHaveAttribute("href", djUrl!);
+  await expect(djInviteLink).toHaveAttribute("target", "_blank");
+  await expect(listenerInviteLink).toHaveAttribute("href", listenerUrl!);
+  await expect(listenerInviteLink).toHaveAttribute("target", "_blank");
+  const djPagePromise = context.waitForEvent("page");
+  await djInviteLink.click();
+  const dj = await djPagePromise;
+  await expect(dj).toHaveURL(/\/broadcast$/);
+  await expect(dj.getByRole("heading", { name: "Choose your audio" })).toBeVisible();
   const djInviteCopyButton = page.locator(".copy-row").filter({ hasText: "DJ invite" }).getByRole("button", { name: "Copy DJ link" });
   await expect(djInviteCopyButton.locator(".t-icon-swap")).toHaveAttribute("data-state", "a");
   await djInviteCopyButton.click();
@@ -66,8 +77,6 @@ test("owner creates a session and DJ reaches the ready screen", async ({ page, c
   await listener.screenshot({ path: "output/playwright/dj-relay-listener-share.png", fullPage: true });
   await listener.close();
 
-  const dj = await context.newPage();
-  await dj.goto(djUrl!);
   await expect(dj.getByRole("link", { name: "Producer console" })).toHaveCount(0);
   await expect(dj.getByRole("heading", { name: "Choose your audio" })).toBeVisible();
   await expect(dj.getByRole("heading", { name: "First time? Start here." })).toBeVisible();

@@ -5,18 +5,26 @@ import { createApp } from "./app.js";
 import { assertProductionConfig, loadConfig } from "./config.js";
 import { SessionStore } from "./db.js";
 import { MediaMtxControlClient, RecordingWatchdog } from "./recordingWatchdog.js";
+import { MediaMtxRecordingBackend, RecordingFinalizer } from "./recordings.js";
 
 const config = loadConfig();
 assertProductionConfig(config);
 const store = new SessionStore(config.databasePath);
 const mediaMtx = new MediaMtxControlClient(config.mediaMtxApiUrl);
+const recordings = new MediaMtxRecordingBackend(
+  config.mediaMtxPlaybackUrl,
+  config.mediaMtxApiUrl,
+  config.recordingsPath,
+  config.recordingPlaybackPath,
+);
+const recordingFinalizer = new RecordingFinalizer({ store, recordings });
 const recordingGuard = new RecordingWatchdog({
   config,
   store,
   mediaMtx,
 });
 await recordingGuard.initialize();
-const app = createApp({ config, store, recordingGuard, mediaMtx });
+const app = createApp({ config, store, recordingGuard, mediaMtx, recordings });
 const root = process.cwd();
 
 if (process.env.NODE_ENV === "development") {
@@ -35,11 +43,13 @@ if (process.env.NODE_ENV === "development") {
 
 const server = app.listen(config.port, "0.0.0.0", () => {
   recordingGuard.start();
+  recordingFinalizer.start();
   console.log(JSON.stringify({ level: "info", message: "Discus listening", port: config.port }));
 });
 
 function shutdown(): void {
   recordingGuard.stop();
+  recordingFinalizer.stop();
   server.close(() => {
     store.close();
     process.exit(0);

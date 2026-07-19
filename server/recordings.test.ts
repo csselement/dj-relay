@@ -1,3 +1,7 @@
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { spawnSync } from "node:child_process";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RelaySession } from "./db.js";
 import { MediaMtxRecordingBackend, isReplaySession, recordingDetails } from "./recordings.js";
@@ -43,6 +47,90 @@ describe("MediaMtxRecordingBackend", () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("no recording found", { status: 400 })));
     const backend = new MediaMtxRecordingBackend("http://playback:9996", "http://media:9997");
     await expect(backend.listParts("recording-session-missing")).resolves.toEqual([]);
+  });
+
+  it("serves authenticated recording files with byte ranges for iOS media playback", async () => {
+    const recordingsPath = await mkdtemp(join(tmpdir(), "discus-recordings-"));
+    try {
+      const sessionPath = join(recordingsPath, "recording-session-test");
+      await mkdir(sessionPath);
+      await writeFile(join(sessionPath, "2026-07-17_20-00-00-123456.mp4"), Uint8Array.from([0, 1, 2, 3, 4, 5]));
+      const backend = new MediaMtxRecordingBackend("http://playback:9996", "http://media:9997", recordingsPath);
+      const response = await backend.fetchPart(
+        "recording-session-test",
+        { start: "2026-07-17T20:00:00.123456Z", durationSeconds: 12.5 },
+        new AbortController().signal,
+        "bytes=2-4",
+      );
+
+      expect(response.status).toBe(206);
+      expect(response.headers.get("accept-ranges")).toBe("bytes");
+      expect(response.headers.get("content-range")).toBe("bytes 2-4/6");
+      expect(response.headers.get("content-length")).toBe("3");
+      expect(new Uint8Array(await response.arrayBuffer())).toEqual(Uint8Array.from([2, 3, 4]));
+    } finally {
+      await rm(recordingsPath, { recursive: true, force: true });
+    }
+  });
+
+  it("finalizes an Opus recording once, validates the MP3, and serves the MP3 with ranges", async () => {
+    const root = await mkdtemp(join(tmpdir(), "discus-finalize-"));
+    const recordingsPath = join(root, "recordings");
+    const playbackPath = join(root, "playback");
+    const sessionPath = join(recordingsPath, "recording-session-test");
+    await Promise.all([mkdir(sessionPath, { recursive: true }), mkdir(playbackPath, { recursive: true })]);
+    const sourcePath = join(sessionPath, "2026-07-17_20-00-00-123400.mp4");
+    const source = spawnSync("ffmpeg", [
+      "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo",
+      "-t", "0.25", "-c:a", "libopus", "-b:a", "192k", "-f", "mp4",
+      "-movflags", "frag_keyframe+empty_moov+default_base_moof", sourcePath,
+    ]);
+    if (source.status !== 0) throw new Error(source.stderr.toString() || "Could not create finalization fixture");
+
+    const deletedStarts: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/list") {
+        return new Response(JSON.stringify([{ start: "2026-07-17T20:00:00.1234Z", duration: 0.25 }]), {
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.pathname.includes("/v3/recordings/get/")) {
+        return new Response(JSON.stringify({ segments: [{ start: "2026-07-17T20:00:00.1234Z" }] }), {
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.pathname === "/v3/recordings/deletesegment" && init?.method === "DELETE") {
+        deletedStarts.push(url.searchParams.get("start") ?? "");
+        return new Response(JSON.stringify({ ok: true }), { headers: { "Content-Type": "application/json" } });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+
+    try {
+      const backend = new MediaMtxRecordingBackend(
+        "http://playback:9996",
+        "http://media:9997",
+        recordingsPath,
+        playbackPath,
+      );
+      await expect(backend.finalize("recording-session-test")).resolves.toBe(true);
+      await expect(backend.listParts("recording-session-test")).resolves.toEqual([
+        { start: "2026-07-17T20:00:00.1234Z", durationSeconds: 0.25 },
+      ]);
+      const response = await backend.fetchPart(
+        "recording-session-test",
+        { start: "2026-07-17T20:00:00.1234Z", durationSeconds: 0.25 },
+        new AbortController().signal,
+        "bytes=0-2",
+      );
+      expect(response.status).toBe(206);
+      expect(response.headers.get("content-type")).toBe("audio/mpeg");
+      expect(Buffer.from(await response.arrayBuffer()).toString("ascii")).toBe("ID3");
+      expect(deletedStarts).toEqual(["2026-07-17T20:00:00.1234Z"]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("deletes every segment and reports partial failures", async () => {
@@ -98,7 +186,7 @@ describe("recordingDetails", () => {
     vi.spyOn(Date, "now").mockReturnValue(new Date(endedAt).getTime() + 10_000);
     await expect(recordingDetails(session, backend)).resolves.toMatchObject({ summary: { status: "finalizing" } });
 
-    vi.spyOn(Date, "now").mockReturnValue(new Date(endedAt).getTime() + 31_000);
+    vi.spyOn(Date, "now").mockReturnValue(new Date(endedAt).getTime() + 15 * 60_000 + 1);
     await expect(recordingDetails(session, backend)).resolves.toMatchObject({ summary: { status: "unavailable" } });
   });
 });

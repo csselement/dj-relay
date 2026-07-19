@@ -42,13 +42,13 @@ describe("RecordingPlayer", () => {
     await waitFor(() => expect(screen.getByLabelText("Friday session recording part 2")).toHaveAttribute("src", "/api/session/recording/parts/1"));
   });
 
-  it("keeps polling copy visible while MediaMTX finalizes", async () => {
+  it("clearly explains that a concluded recording is being transcoded", async () => {
     vi.spyOn(sessionApi, "recording").mockResolvedValue({
       recording: { requested: true, status: "finalizing", durationSeconds: null, partCount: 0 },
       parts: [],
     });
     render(<RecordingPlayer sessionId="session-1" sessionName="Friday session" />);
-    expect(await screen.findByText(/Preparing the session replay/)).toBeVisible();
+    expect(await screen.findByText("Transcoding recording, please wait… This page will update automatically.")).toBeVisible();
     expect(await screen.findByRole("button", { name: "Copy session link" })).toBeVisible();
   });
 

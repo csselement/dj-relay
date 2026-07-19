@@ -20,6 +20,7 @@ export type AppConfig = {
   transcodeQueueWaitMs: number;
   transcodeTimeoutMs: number;
   recordingsPath: string;
+  recordingPlaybackPath: string;
   recordingSessionMaxBytes: number;
   recordingArchiveMaxBytes: number;
   recordingHostFreeFloorBytes: number;
@@ -55,6 +56,7 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     transcodeQueueWaitMs: Number(process.env.TRANSCODE_QUEUE_WAIT_MS ?? 5_000),
     transcodeTimeoutMs: Number(process.env.TRANSCODE_TIMEOUT_MS ?? 15 * 60_000),
     recordingsPath: process.env.RECORDINGS_PATH ?? "/recordings",
+    recordingPlaybackPath: process.env.RECORDING_PLAYBACK_PATH ?? "/playback",
     recordingSessionMaxBytes: Number(process.env.RECORDING_SESSION_MAX_BYTES ?? 8 * 1024 ** 3),
     recordingArchiveMaxBytes: Number(process.env.RECORDING_ARCHIVE_MAX_BYTES ?? 256 * 1024 ** 3),
     recordingHostFreeFloorBytes: Number(process.env.RECORDING_HOST_FREE_FLOOR_BYTES ?? 100 * 1024 ** 3),

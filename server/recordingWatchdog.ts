@@ -183,10 +183,12 @@ export class RecordingWatchdog {
     if (this.archiveScanRunning) return;
     this.archiveScanRunning = true;
     try {
-      const [usedBytes, freeBytes] = await Promise.all([
+      const [recordingBytes, playbackBytes, freeBytes] = await Promise.all([
         this.sizeDirectory(this.dependencies.config.recordingsPath),
+        this.sizeDirectory(this.dependencies.config.recordingPlaybackPath),
         this.getFreeBytes(this.dependencies.config.recordingsPath),
       ]);
+      const usedBytes = recordingBytes + playbackBytes;
       const blocked = usedBytes >= this.dependencies.config.recordingArchiveMaxBytes ||
         freeBytes <= this.dependencies.config.recordingHostFreeFloorBytes;
       const warning = usedBytes >= this.dependencies.config.recordingArchiveMaxBytes * this.dependencies.config.recordingArchiveWarningRatio ||

@@ -79,7 +79,7 @@ export function RecordingPlayer({ sessionId, sessionName }: { sessionId: string;
   if (error && !data) {
     content = <InlineNotice tone="danger">{error}</InlineNotice>;
   } else if (!data || data.recording.status === "finalizing") {
-    content = <InlineNotice tone="neutral">Preparing the session replay… This page will update automatically.</InlineNotice>;
+    content = <InlineNotice tone="neutral">Transcoding recording, please wait… This page will update automatically.</InlineNotice>;
   } else if (data.recording.status === "deleted") {
     content = <InlineNotice tone="neutral">This recording was deleted by the producer.</InlineNotice>;
   } else if (!ready || !part) {

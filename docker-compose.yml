@@ -25,6 +25,7 @@ services:
       TRANSCODE_QUEUE_WAIT_MS: ${TRANSCODE_QUEUE_WAIT_MS:-5000}
       TRANSCODE_TIMEOUT_MS: ${TRANSCODE_TIMEOUT_MS:-900000}
       RECORDINGS_PATH: /recordings
+      RECORDING_PLAYBACK_PATH: /playback
       RECORDING_SESSION_MAX_BYTES: ${RECORDING_SESSION_MAX_BYTES:-8589934592}
       RECORDING_ARCHIVE_MAX_BYTES: ${RECORDING_ARCHIVE_MAX_BYTES:-274877906944}
       RECORDING_HOST_FREE_FLOOR_BYTES: ${RECORDING_HOST_FREE_FLOOR_BYTES:-107374182400}
@@ -38,6 +39,7 @@ services:
     volumes:
       - relay-data:/app/data
       - relay-recordings:/recordings:ro
+      - relay-playback:/playback
     cpus: "2.0"
     mem_limit: 1536m
     pids_limit: 128
@@ -95,5 +97,6 @@ services:
 volumes:
   relay-data:
   relay-recordings:
+  relay-playback:
   caddy-data:
   caddy-config:

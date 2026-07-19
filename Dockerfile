@@ -12,6 +12,8 @@ ENV NODE_ENV=production
 WORKDIR /app
 RUN apk add --no-cache ffmpeg \
   && mkdir -p /app/data \
+  && mkdir -p /playback \
+  && chown node:node /playback \
   && chown -R node:node /app
 COPY --from=build --chown=node:node /app/package.json /app/package-lock.json ./
 COPY --from=build --chown=node:node /app/node_modules ./node_modules

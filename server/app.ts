@@ -199,7 +199,12 @@ export function createApp({
   config,
   store,
   discordNotifier = announceDiscordSession,
-  recordings = new MediaMtxRecordingBackend(config.mediaMtxPlaybackUrl, config.mediaMtxApiUrl),
+  recordings = new MediaMtxRecordingBackend(
+    config.mediaMtxPlaybackUrl,
+    config.mediaMtxApiUrl,
+    config.recordingsPath,
+    config.recordingPlaybackPath,
+  ),
   mp3Transcoder = transcodeToMp3,
   loginLimiter = new LoginAttemptLimiter({
     windowMs: config.loginWindowMs,
@@ -277,7 +282,13 @@ export function createApp({
     }
   }
 
-  async function streamRecordingPart(session: RelaySession, index: number, downloadMp3: boolean, res: Response): Promise<void> {
+  async function streamRecordingPart(
+    session: RelaySession,
+    index: number,
+    mp3Mode: "none" | "playback" | "download",
+    requestedRange: string | undefined,
+    res: Response,
+  ): Promise<void> {
     const controller = new AbortController();
     const abort = () => {
       if (!res.writableEnded) controller.abort();
@@ -288,7 +299,20 @@ export function createApp({
         const parts = await recordings.listParts(session.mediaPath);
         const part = parts[index];
         if (!part) return sendError(res, 404, "Recording part not found");
-        const upstream = await recordings.fetchPart(session.mediaPath, part, signal);
+        const upstream = await recordings.fetchPart(
+          session.mediaPath,
+          part,
+          signal,
+          mp3Mode === "none" ? requestedRange : undefined,
+        );
+        const acceptRanges = upstream.headers.get("accept-ranges");
+        const contentRange = upstream.headers.get("content-range");
+        if (acceptRanges) res.setHeader("Accept-Ranges", acceptRanges);
+        if (contentRange) res.setHeader("Content-Range", contentRange);
+        if (upstream.status === 416) {
+          res.status(416).end();
+          return;
+        }
         if (!upstream.ok || !upstream.body) return sendError(res, 502, "Recording playback is temporarily unavailable");
         res.status(upstream.status);
         res.setHeader("Cache-Control", "private, no-store");
@@ -297,20 +321,30 @@ export function createApp({
           .replace(/^-+|-+$/g, "")
           .slice(0, 80) || "discus-recording";
         const input = Readable.fromWeb(upstream.body as NodeReadableStream<Uint8Array>);
-        if (downloadMp3) {
+        const upstreamType = upstream.headers.get("content-type") ?? "video/mp4";
+        const finalizedMp3 = upstreamType.toLowerCase().startsWith("audio/mpeg");
+        if (mp3Mode !== "none" && !finalizedMp3) {
           const filename = parts.length > 1 ? `${safeName}-part-${index + 1}.mp3` : `${safeName}.mp3`;
           res.setHeader("Content-Type", "audio/mpeg");
-          res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+          res.setHeader(
+            "Content-Disposition",
+            mp3Mode === "download" ? `attachment; filename="${filename}"` : "inline",
+          );
           await mp3Transcoder(input, res, signal);
           return;
         }
-        res.setHeader("Content-Type", upstream.headers.get("content-type") ?? "video/mp4");
-        res.setHeader("Content-Disposition", "inline");
+        res.setHeader("Content-Type", upstreamType);
+        if (mp3Mode === "download") {
+          const filename = parts.length > 1 ? `${safeName}-part-${index + 1}.mp3` : `${safeName}.mp3`;
+          res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+        } else {
+          res.setHeader("Content-Disposition", "inline");
+        }
         const contentLength = upstream.headers.get("content-length");
         if (contentLength) res.setHeader("Content-Length", contentLength);
         await pipeline(input, res);
       };
-      if (downloadMp3) await transcodeScheduler.run(controller.signal, stream);
+      if (mp3Mode !== "none") await transcodeScheduler.run(controller.signal, stream);
       else await stream(controller.signal);
     } catch (error) {
       if (error instanceof TranscodeCapacityError && error.code !== "aborted" && !res.headersSent) {
@@ -607,7 +641,15 @@ export function createApp({
     }
     const index = Number(req.params.index);
     if (!Number.isSafeInteger(index) || index < 0) return sendError(res, 404, "Recording part not found");
-    await streamRecordingPart(session, index, req.query.download === "mp3" || req.query.download === "1", res);
+    const downloadMp3 = req.query.download === "mp3" || req.query.download === "1";
+    const playbackMp3 = req.query.format === "mp3";
+    await streamRecordingPart(
+      session,
+      index,
+      downloadMp3 ? "download" : playbackMp3 ? "playback" : "none",
+      req.get("range"),
+      res,
+    );
   });
 
   app.post("/api/session/state", requireInvite(config, store), async (req, res) => {

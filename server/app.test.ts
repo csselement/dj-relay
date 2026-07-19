@@ -44,7 +44,19 @@ function recordingBackend(parts: RecordingPart[] = []) {
   const deleted: string[] = [];
   const backend: RecordingBackend = {
     listParts: async () => parts,
-    fetchPart: async () => new Response(Uint8Array.from([1, 2, 3, 4]), { headers: { "Content-Type": "video/mp4" } }),
+    fetchPart: async (_path, _part, _signal, range) => range
+      ? new Response(Uint8Array.from([2, 3]), {
+          status: 206,
+          headers: {
+            "Accept-Ranges": "bytes",
+            "Content-Range": "bytes 1-2/4",
+            "Content-Length": "2",
+            "Content-Type": "video/mp4",
+          },
+        })
+      : new Response(Uint8Array.from([1, 2, 3, 4]), {
+          headers: { "Accept-Ranges": "bytes", "Content-Length": "4", "Content-Type": "video/mp4" },
+        }),
     deleteAll: async (path) => { deleted.push(path); },
   };
   return { backend, deleted };
@@ -280,6 +292,16 @@ describe("Discus API", () => {
       ]);
     });
     await replay.get("/api/session/recording/parts/0").expect(200).expect("Content-Type", /video\/mp4/);
+    await replay.get("/api/session/recording/parts/0")
+      .set("Range", "bytes=1-2")
+      .expect(206)
+      .expect("Accept-Ranges", "bytes")
+      .expect("Content-Range", "bytes 1-2/4")
+      .expect("Content-Length", "2");
+    await replay.get("/api/session/recording/parts/0?format=mp3")
+      .expect(200)
+      .expect("Content-Type", /audio\/mpeg/)
+      .expect("Content-Disposition", "inline");
     await replay.get("/api/session/recording/parts/0?download=mp3")
       .expect(200)
       .expect("Content-Type", /audio\/mpeg/)
