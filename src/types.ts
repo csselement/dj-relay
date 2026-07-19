@@ -51,6 +51,7 @@ export type RecordingResponse = {
     index: number;
     start: string;
     durationSeconds: number;
+    filename?: string;
     url: string;
     downloadUrl: string;
   }>;

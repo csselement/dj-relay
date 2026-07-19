@@ -1,10 +1,10 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RelaySession } from "./db.js";
-import { MediaMtxRecordingBackend, isReplaySession, recordingDetails } from "./recordings.js";
+import { archiveFilename, MediaMtxRecordingBackend, isReplaySession, recordingDetails } from "./recordings.js";
 
 const endedSession: RelaySession = {
   id: "session-1",
@@ -30,6 +30,10 @@ afterEach(() => {
 });
 
 describe("MediaMtxRecordingBackend", () => {
+  it("names archives by Pacific start time and a safe session-name slug", () => {
+    expect(archiveFilename(endedSession)).toBe("202607171205_recorded-session.mp3");
+  });
+
   it("normalizes and orders valid playback parts", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify([
       { start: "2026-07-17T20:01:00Z", duration: 8 },
@@ -114,9 +118,19 @@ describe("MediaMtxRecordingBackend", () => {
         recordingsPath,
         playbackPath,
       );
-      await expect(backend.finalize("recording-session-test")).resolves.toBe(true);
+      const session = {
+        ...endedSession,
+        name: "Recorded Session!",
+        startedAt: "2026-07-17T20:00:00.1234Z",
+        mediaPath: "recording-session-test",
+      };
+      await expect(backend.finalize(session)).resolves.toBe(true);
       await expect(backend.listParts("recording-session-test")).resolves.toEqual([
-        { start: "2026-07-17T20:00:00.1234Z", durationSeconds: 0.25 },
+        {
+          start: "2026-07-17T20:00:00.1234Z",
+          durationSeconds: 0.25,
+          filename: "202607171300_recorded-session.mp3",
+        },
       ]);
       const response = await backend.fetchPart(
         "recording-session-test",
@@ -128,6 +142,65 @@ describe("MediaMtxRecordingBackend", () => {
       expect(response.headers.get("content-type")).toBe("audio/mpeg");
       expect(Buffer.from(await response.arrayBuffer()).toString("ascii")).toBe("ID3");
       expect(deletedStarts).toEqual(["2026-07-17T20:00:00.1234Z"]);
+      await expect(stat(join(playbackPath, "202607171300_recorded-session.mp3"))).resolves.toMatchObject({ size: expect.any(Number) });
+      const metadata = JSON.parse(await readFile(join(playbackPath, "202607171300_recorded-session.json"), "utf8"));
+      expect(metadata).toMatchObject({
+        schemaVersion: 1,
+        sessionId: "session-1",
+        sessionName: "Recorded Session!",
+        mediaPath: "recording-session-test",
+        filename: "202607171300_recorded-session.mp3",
+        archiveTimeZone: "America/Los_Angeles",
+        startedAt: "2026-07-17T20:00:00.1234Z",
+        durationSeconds: 0.25,
+        codec: "mp3",
+        bitrateKbps: 192,
+        sampleRateHz: 48_000,
+        channels: 2,
+        sourceFormat: "fmp4/opus",
+        sourcePartCount: 1,
+        sourceStarts: ["2026-07-17T20:00:00.1234Z"],
+        bytes: expect.any(Number),
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("migrates legacy media-path archives to the start-time naming scheme", async () => {
+    const root = await mkdtemp(join(tmpdir(), "discus-migrate-"));
+    const recordingsPath = join(root, "recordings");
+    const playbackPath = join(root, "playback");
+    await Promise.all([mkdir(recordingsPath), mkdir(playbackPath)]);
+    const legacyAudio = join(playbackPath, `${endedSession.mediaPath}.mp3`);
+    const encoded = spawnSync("ffmpeg", [
+      "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo",
+      "-t", "0.25", "-c:a", "libmp3lame", "-b:a", "192k", "-ac", "2", "-ar", "48000", legacyAudio,
+    ]);
+    if (encoded.status !== 0) throw new Error(encoded.stderr.toString() || "Could not create migration fixture");
+    await writeFile(join(playbackPath, `${endedSession.mediaPath}.json`), JSON.stringify({
+      start: endedSession.startedAt,
+      durationSeconds: 0.25,
+    }));
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 404 })));
+
+    try {
+      const backend = new MediaMtxRecordingBackend(
+        "http://playback:9996",
+        "http://media:9997",
+        recordingsPath,
+        playbackPath,
+      );
+      await expect(backend.finalize(endedSession)).resolves.toBe(false);
+      await expect(stat(join(playbackPath, "202607171205_recorded-session.mp3"))).resolves.toMatchObject({ size: expect.any(Number) });
+      await expect(stat(legacyAudio)).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(backend.listParts(endedSession.mediaPath)).resolves.toEqual([{
+        start: endedSession.startedAt,
+        durationSeconds: 0.25,
+        filename: "202607171205_recorded-session.mp3",
+      }]);
+      const metadata = JSON.parse(await readFile(join(playbackPath, "202607171205_recorded-session.json"), "utf8"));
+      expect(metadata.sourcePartCount).toBeNull();
     } finally {
       await rm(root, { recursive: true, force: true });
     }

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { createReadStream } from "node:fs";
-import { readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
@@ -10,6 +10,7 @@ import type { RelaySession, SessionStore } from "./db.js";
 export type RecordingPart = {
   start: string;
   durationSeconds: number;
+  filename?: string;
 };
 
 export type RecordingStatus = "off" | "scheduled" | "recording" | "finalizing" | "ready" | "deleted" | "unavailable";
@@ -102,6 +103,63 @@ type RecordingApiResponse = {
   segments?: Array<{ start?: unknown }>;
 };
 
+type ArchiveMetadata = {
+  schemaVersion: 1;
+  sessionId: string;
+  sessionName: string;
+  mediaPath: string;
+  filename: string;
+  archiveTimeZone: "America/Los_Angeles";
+  startedAt: string;
+  endedAt: string | null;
+  durationSeconds: number;
+  codec: "mp3";
+  bitrateKbps: 192;
+  sampleRateHz: 48_000;
+  channels: 2;
+  sourceFormat: "fmp4/opus";
+  sourcePartCount: number | null;
+  sourceStarts: string[];
+  finalizedAt: string;
+  bytes: number;
+};
+
+type ResolvedArchive = {
+  audioPath: string;
+  metadataPath: string;
+  metadata: Pick<ArchiveMetadata, "filename" | "startedAt" | "durationSeconds">;
+  legacy: boolean;
+};
+
+const ARCHIVE_TIME_ZONE = "America/Los_Angeles";
+
+function archiveTimestamp(startedAt: string): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: ARCHIVE_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(startedAt));
+  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${value("year")}${value("month")}${value("day")}${value("hour")}${value("minute")}`;
+}
+
+function archiveSlug(name: string): string {
+  return name.normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80) || "recording";
+}
+
+export function archiveFilename(session: Pick<RelaySession, "name" | "startedAt" | "createdAt">): string {
+  return `${archiveTimestamp(session.startedAt ?? session.createdAt)}_${archiveSlug(session.name)}.mp3`;
+}
+
 async function responseError(response: Response, fallback: string): Promise<Error> {
   const payload = await response.json().catch(() => null) as { error?: string } | null;
   return new Error(payload?.error ?? `${fallback} (${response.status})`);
@@ -117,19 +175,12 @@ export class MediaMtxRecordingBackend implements RecordingBackend {
 
   async listParts(path: string): Promise<RecordingPart[]> {
     if (this.playbackPath && /^[a-zA-Z0-9_-]+$/.test(path)) {
-      try {
-        const [raw] = await Promise.all([
-          readFile(join(this.playbackPath, `${path}.json`), "utf8"),
-          stat(join(this.playbackPath, `${path}.mp3`)),
-        ]);
-        const metadata = JSON.parse(raw) as { start?: unknown; durationSeconds?: unknown };
-        if (typeof metadata.start === "string" && typeof metadata.durationSeconds === "number" && metadata.durationSeconds > 0) {
-          return [{ start: metadata.start, durationSeconds: metadata.durationSeconds }];
-        }
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      }
-      return [];
+      const archive = await this.resolveArchive(path);
+      return archive ? [{
+        start: archive.metadata.startedAt,
+        durationSeconds: archive.metadata.durationSeconds,
+        filename: archive.metadata.filename,
+      }] : [];
     }
     return this.listSourceParts(path);
   }
@@ -152,11 +203,8 @@ export class MediaMtxRecordingBackend implements RecordingBackend {
 
   async fetchPart(path: string, part: RecordingPart, signal: AbortSignal, range?: string): Promise<Response> {
     if (this.playbackPath && /^[a-zA-Z0-9_-]+$/.test(path)) {
-      try {
-        return await fileResponse(join(this.playbackPath, `${path}.mp3`), "audio/mpeg", signal, range);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      }
+      const archive = await this.resolveArchive(path);
+      if (archive) return fileResponse(archive.audioPath, "audio/mpeg", signal, range);
     }
     const filename = recordingFilename(part.start);
     if (this.recordingsPath && filename && /^[a-zA-Z0-9_-]+$/.test(path)) {
@@ -179,17 +227,25 @@ export class MediaMtxRecordingBackend implements RecordingBackend {
   async deleteAll(path: string): Promise<void> {
     await this.deleteSources(path);
     if (this.playbackPath && /^[a-zA-Z0-9_-]+$/.test(path)) {
+      const archive = await this.resolveArchive(path);
       await Promise.all([
+        ...(archive ? [
+          rm(archive.audioPath, { force: true }),
+          rm(archive.metadataPath, { force: true }),
+        ] : []),
+        rm(join(this.playbackPath, ".index", `${path}.json`), { force: true }),
         rm(join(this.playbackPath, `${path}.mp3`), { force: true }),
         rm(join(this.playbackPath, `${path}.json`), { force: true }),
       ]);
     }
   }
 
-  async finalize(path: string): Promise<boolean> {
+  async finalize(session: RelaySession): Promise<boolean> {
+    const path = session.mediaPath;
     if (!this.recordingsPath || !this.playbackPath || !/^[a-zA-Z0-9_-]+$/.test(path)) return false;
-    const ready = await this.listParts(path);
-    if (ready.length > 0) {
+    const ready = await this.resolveArchive(path);
+    if (ready) {
+      if (ready.legacy) await this.migrateLegacyArchive(session, ready);
       await this.deleteSources(path);
       return false;
     }
@@ -206,8 +262,6 @@ export class MediaMtxRecordingBackend implements RecordingBackend {
     const id = randomUUID();
     const concatPath = join(tmpdir(), `discus-${id}.txt`);
     const outputPath = join(this.playbackPath, `${path}.${id}.mp3`);
-    const finalPath = join(this.playbackPath, `${path}.mp3`);
-    const metadataPath = join(this.playbackPath, `${path}.json`);
     const durationSeconds = sources.reduce((total, part) => total + part.durationSeconds, 0);
     const concat = files.map((file) => `file '${file.replaceAll("'", "'\\''")}'`).join("\n");
     await writeFile(concatPath, `${concat}\n`, { mode: 0o600 });
@@ -218,10 +272,7 @@ export class MediaMtxRecordingBackend implements RecordingBackend {
         outputPath,
       ]);
       await validateMp3(outputPath, durationSeconds);
-      await rename(outputPath, finalPath);
-      const metadataTemp = `${metadataPath}.${id}`;
-      await writeFile(metadataTemp, JSON.stringify({ start: sources[0].start, durationSeconds }));
-      await rename(metadataTemp, metadataPath);
+      await this.publishArchive(session, outputPath, durationSeconds, sources, id);
       await this.deleteSources(path);
       return true;
     } finally {
@@ -230,6 +281,104 @@ export class MediaMtxRecordingBackend implements RecordingBackend {
         rm(outputPath, { force: true }),
       ]);
     }
+  }
+
+  private async resolveArchive(path: string): Promise<ResolvedArchive | null> {
+    if (!this.playbackPath) return null;
+    try {
+      const pointer = JSON.parse(await readFile(join(this.playbackPath, ".index", `${path}.json`), "utf8")) as { basename?: unknown };
+      if (typeof pointer.basename !== "string" || !/^[a-zA-Z0-9_-]+$/.test(pointer.basename)) throw new Error("Archive index was invalid");
+      const metadataPath = join(this.playbackPath, `${pointer.basename}.json`);
+      const audioPath = join(this.playbackPath, `${pointer.basename}.mp3`);
+      const [raw] = await Promise.all([readFile(metadataPath, "utf8"), stat(audioPath)]);
+      const metadata = JSON.parse(raw) as Partial<ArchiveMetadata>;
+      if (metadata.mediaPath !== path || typeof metadata.filename !== "string" || typeof metadata.startedAt !== "string" ||
+        typeof metadata.durationSeconds !== "number" || metadata.durationSeconds <= 0) throw new Error("Archive metadata was invalid");
+      return { audioPath, metadataPath, metadata: metadata as ArchiveMetadata, legacy: false };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+
+    try {
+      const metadataPath = join(this.playbackPath, `${path}.json`);
+      const audioPath = join(this.playbackPath, `${path}.mp3`);
+      const [raw] = await Promise.all([readFile(metadataPath, "utf8"), stat(audioPath)]);
+      const legacy = JSON.parse(raw) as { start?: unknown; durationSeconds?: unknown };
+      if (typeof legacy.start !== "string" || typeof legacy.durationSeconds !== "number" || legacy.durationSeconds <= 0) {
+        throw new Error("Legacy archive metadata was invalid");
+      }
+      return {
+        audioPath,
+        metadataPath,
+        metadata: { filename: `${path}.mp3`, startedAt: legacy.start, durationSeconds: legacy.durationSeconds },
+        legacy: true,
+      };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      return null;
+    }
+  }
+
+  private async publishArchive(
+    session: RelaySession,
+    sourcePath: string,
+    durationSeconds: number,
+    sources: RecordingPart[],
+    id: string,
+    sourcePartCount: number | null = sources.length || null,
+  ): Promise<void> {
+    if (!this.playbackPath) throw new Error("Playback archive path is unavailable");
+    await mkdir(join(this.playbackPath, ".index"), { recursive: true });
+    let filename = archiveFilename(session);
+    let basename = filename.slice(0, -4);
+    try {
+      await stat(join(this.playbackPath, filename));
+      basename = `${basename}-${session.id.slice(0, 8)}`;
+      filename = `${basename}.mp3`;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    const audioPath = join(this.playbackPath, filename);
+    const metadataPath = join(this.playbackPath, `${basename}.json`);
+    await rename(sourcePath, audioPath);
+    const audio = await stat(audioPath);
+    const metadata: ArchiveMetadata = {
+      schemaVersion: 1,
+      sessionId: session.id,
+      sessionName: session.name,
+      mediaPath: session.mediaPath,
+      filename,
+      archiveTimeZone: ARCHIVE_TIME_ZONE,
+      startedAt: session.startedAt ?? sources[0]?.start ?? session.createdAt,
+      endedAt: session.endedAt,
+      durationSeconds,
+      codec: "mp3",
+      bitrateKbps: 192,
+      sampleRateHz: 48_000,
+      channels: 2,
+      sourceFormat: "fmp4/opus",
+      sourcePartCount,
+      sourceStarts: sources.map((part) => part.start),
+      finalizedAt: new Date().toISOString(),
+      bytes: audio.size,
+    };
+    const metadataTemp = `${metadataPath}.${id}`;
+    const pointerPath = join(this.playbackPath, ".index", `${session.mediaPath}.json`);
+    const pointerTemp = `${pointerPath}.${id}`;
+    await writeFile(metadataTemp, `${JSON.stringify(metadata, null, 2)}\n`);
+    await rename(metadataTemp, metadataPath);
+    await writeFile(pointerTemp, `${JSON.stringify({ basename })}\n`);
+    await rename(pointerTemp, pointerPath);
+  }
+
+  private async migrateLegacyArchive(session: RelaySession, archive: ResolvedArchive): Promise<void> {
+    await validateMp3(archive.audioPath, archive.metadata.durationSeconds);
+    const id = randomUUID();
+    await this.publishArchive(session, archive.audioPath, archive.metadata.durationSeconds, [{
+      start: archive.metadata.startedAt,
+      durationSeconds: archive.metadata.durationSeconds,
+    }], id, null);
+    await rm(archive.metadataPath, { force: true });
   }
 
   private async deleteSources(path: string): Promise<void> {
@@ -334,7 +483,7 @@ export class RecordingFinalizer {
         isReplaySession(session) && Boolean(session.startedAt) && !session.recordingDeletedAt);
       for (const session of sessions) {
         try {
-          const finalized = await this.dependencies.recordings.finalize(session.mediaPath);
+          const finalized = await this.dependencies.recordings.finalize(session);
           if (finalized) console.log(JSON.stringify({ level: "info", event: "recording_mp3_finalized", sessionId: session.id }));
         } catch (error) {
           console.error(JSON.stringify({

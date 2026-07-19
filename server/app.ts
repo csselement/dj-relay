@@ -320,23 +320,22 @@ export function createApp({
           .replace(/[^a-zA-Z0-9._-]+/g, "-")
           .replace(/^-+|-+$/g, "")
           .slice(0, 80) || "discus-recording";
+        const archivedFilename = part.filename ?? (parts.length > 1 ? `${safeName}-part-${index + 1}.mp3` : `${safeName}.mp3`);
         const input = Readable.fromWeb(upstream.body as NodeReadableStream<Uint8Array>);
         const upstreamType = upstream.headers.get("content-type") ?? "video/mp4";
         const finalizedMp3 = upstreamType.toLowerCase().startsWith("audio/mpeg");
         if (mp3Mode !== "none" && !finalizedMp3) {
-          const filename = parts.length > 1 ? `${safeName}-part-${index + 1}.mp3` : `${safeName}.mp3`;
           res.setHeader("Content-Type", "audio/mpeg");
           res.setHeader(
             "Content-Disposition",
-            mp3Mode === "download" ? `attachment; filename="${filename}"` : "inline",
+            mp3Mode === "download" ? `attachment; filename="${archivedFilename}"` : "inline",
           );
           await mp3Transcoder(input, res, signal);
           return;
         }
         res.setHeader("Content-Type", upstreamType);
         if (mp3Mode === "download") {
-          const filename = parts.length > 1 ? `${safeName}-part-${index + 1}.mp3` : `${safeName}.mp3`;
-          res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+          res.setHeader("Content-Disposition", `attachment; filename="${archivedFilename}"`);
         } else {
           res.setHeader("Content-Disposition", "inline");
         }
@@ -626,6 +625,7 @@ export function createApp({
         index,
         start: part.start,
         durationSeconds: part.durationSeconds,
+        ...(part.filename ? { filename: part.filename } : {}),
         url: `/api/session/recording/parts/${index}`,
         downloadUrl: `/api/session/recording/parts/${index}?download=mp3`,
       })),
