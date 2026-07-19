@@ -6,7 +6,7 @@ import { loadConfig } from "./config.js";
 import { SessionStore } from "./db.js";
 import type { DiscordSessionAnnouncement } from "./discord.js";
 import type { RecordingBackend, RecordingPart } from "./recordings.js";
-import { verifyToken } from "./security.js";
+import { signToken, verifyToken } from "./security.js";
 import type { Mp3Transcoder } from "./transcoding.js";
 import { LoginAttemptLimiter } from "./loginLimiter.js";
 import type { MediaMtxControl } from "./recordingWatchdog.js";
@@ -163,16 +163,43 @@ describe("Discus API", () => {
     const djExchange = await browser.post("/api/invite/exchange")
       .send({ token: created.body.djUrl.split("/").at(-1) })
       .expect(200);
-    expect(String(djExchange.headers["set-cookie"])).toContain("djrelay_dj_invite=");
+    expect(String(djExchange.headers["set-cookie"])).toContain("djrelay_dj_invite_v2=");
     const listenerExchange = await browser.post("/api/invite/exchange")
       .send({ token: created.body.listenerUrl.split("/").at(-1) })
       .expect(200);
-    expect(String(listenerExchange.headers["set-cookie"])).toContain("djrelay_listener_invite=");
+    expect(String(listenerExchange.headers["set-cookie"])).toContain("djrelay_listener_invite_v2=");
 
     await browser.get("/api/session").set("X-Discus-Role", "dj").expect(200)
       .expect(({ body }) => expect(body.role).toBe("dj"));
     await browser.get("/api/session").set("X-Discus-Role", "listener").expect(200)
       .expect(({ body }) => expect(body.role).toBe("listener"));
+  });
+
+  it("prefers a newly issued listener credential over a stale previous-version cookie", async () => {
+    const { app, store, config } = testApp(); stores.push(store);
+    const owner = request.agent(app);
+    await owner.post("/api/admin/login").send({ password: "owner-test-password" }).expect(200);
+    const created = await owner.post("/api/admin/sessions").send({ name: "Fresh producer preview" }).expect(201);
+    const preview = await owner.get(`/api/admin/sessions/${created.body.session.id}/listen`).expect(302);
+    const currentCookie = String(preview.headers["set-cookie"])
+      .split(",")
+      .find((cookie) => cookie.trim().startsWith("djrelay_listener_invite_v2="))
+      ?.trim()
+      .split(";")[0];
+    expect(currentCookie).toBeTruthy();
+
+    const staleCookie = signToken({
+      kind: "invite",
+      role: "listener",
+      sessionId: "deleted-session",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    }, config.tokenSecret);
+    await request(app)
+      .get("/api/session")
+      .set("X-Discus-Role", "listener")
+      .set("Cookie", `djrelay_listener_invite=${staleCookie}; ${currentCookie}`)
+      .expect(200)
+      .expect(({ body }) => expect(body.session.id).toBe(created.body.session.id));
   });
 
   it("keeps a stale DJ heartbeat live while MediaMTX still has its publisher", async () => {
@@ -332,7 +359,9 @@ describe("Discus API", () => {
     const created = await owner.post("/api/admin/sessions").send({ name: "Owner preview", expiresInHours: 4 });
     const sessionId = created.body.session.id;
 
-    await request(app).get(`/api/admin/sessions/${sessionId}/listen`).expect(401);
+    await request(app).get(`/api/admin/sessions/${sessionId}/listen`)
+      .expect("Cache-Control", "no-store")
+      .expect(401);
     await owner.get(`/api/admin/sessions/${sessionId}/listen`).expect(302).expect("Location", "/listen");
     await owner.get("/api/session").expect(200).expect(({ body }) => {
       expect(body.role).toBe("listener");

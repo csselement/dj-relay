@@ -22,8 +22,10 @@ import { transcodeToMp3, type Mp3Transcoder } from "./transcoding.js";
 
 const ADMIN_COOKIE = "djrelay_admin";
 const LEGACY_INVITE_COOKIE = "djrelay_invite";
-const DJ_INVITE_COOKIE = "djrelay_dj_invite";
-const LISTENER_INVITE_COOKIE = "djrelay_listener_invite";
+const PREVIOUS_DJ_INVITE_COOKIE = "djrelay_dj_invite";
+const PREVIOUS_LISTENER_INVITE_COOKIE = "djrelay_listener_invite";
+const DJ_INVITE_COOKIE = "djrelay_dj_invite_v2";
+const LISTENER_INVITE_COOKIE = "djrelay_listener_invite_v2";
 type InviteTokenPayload = Extract<TokenPayload, { kind: "invite" }>;
 
 type AppDependencies = {
@@ -92,6 +94,10 @@ function roleCookie(role: "dj" | "listener"): string {
   return role === "dj" ? DJ_INVITE_COOKIE : LISTENER_INVITE_COOKIE;
 }
 
+function previousRoleCookie(role: "dj" | "listener"): string {
+  return role === "dj" ? PREVIOUS_DJ_INVITE_COOKIE : PREVIOUS_LISTENER_INVITE_COOKIE;
+}
+
 function verifiedInviteCookie(req: Request, config: AppConfig, name: string): InviteTokenPayload | null {
   const payload = verifyToken(req.cookies?.[name], config.tokenSecret);
   return payload?.kind === "invite" ? payload : null;
@@ -101,6 +107,8 @@ function invitePayload(req: Request, config: AppConfig, expectedRole?: "dj" | "l
   if (expectedRole) {
     const roleInvite = verifiedInviteCookie(req, config, roleCookie(expectedRole));
     if (roleInvite?.role === expectedRole) return roleInvite;
+    const previousRoleInvite = verifiedInviteCookie(req, config, previousRoleCookie(expectedRole));
+    if (previousRoleInvite?.role === expectedRole) return previousRoleInvite;
     const legacyInvite = verifiedInviteCookie(req, config, LEGACY_INVITE_COOKIE);
     return legacyInvite?.role === expectedRole ? legacyInvite : null;
   }
@@ -113,6 +121,10 @@ function invitePayload(req: Request, config: AppConfig, expectedRole?: "dj" | "l
   const listenerInvite = verifiedInviteCookie(req, config, LISTENER_INVITE_COOKIE);
   if (djInvite && !listenerInvite) return djInvite;
   if (listenerInvite && !djInvite) return listenerInvite;
+  const previousDjInvite = verifiedInviteCookie(req, config, PREVIOUS_DJ_INVITE_COOKIE);
+  const previousListenerInvite = verifiedInviteCookie(req, config, PREVIOUS_LISTENER_INVITE_COOKIE);
+  if (previousDjInvite && !previousListenerInvite) return previousDjInvite;
+  if (previousListenerInvite && !previousDjInvite) return previousListenerInvite;
   return verifiedInviteCookie(req, config, LEGACY_INVITE_COOKIE);
 }
 
@@ -223,6 +235,10 @@ export function createApp({
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("X-Frame-Options", "DENY");
     res.setHeader("Permissions-Policy", "camera=(), microphone=(self)");
+    next();
+  });
+  app.use("/api", (_req, res, next) => {
+    res.setHeader("Cache-Control", "no-store");
     next();
   });
 
