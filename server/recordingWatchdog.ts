@@ -48,18 +48,16 @@ function logJson(event: Record<string, unknown>): void {
 }
 
 export async function directorySize(path: string): Promise<number> {
-  let total = 0;
   const entries = await readdir(path, { withFileTypes: true });
-  await Promise.all(entries.map(async (entry) => {
-    if (entry.isSymbolicLink()) return;
+  const sizes = await Promise.all(entries.map(async (entry) => {
+    if (entry.isSymbolicLink()) return 0;
     const target = join(path, entry.name);
     if (entry.isDirectory()) {
-      total += await directorySize(target);
-    } else if (entry.isFile()) {
-      total += (await stat(target)).size;
+      return directorySize(target);
     }
+    return entry.isFile() ? (await stat(target)).size : 0;
   }));
-  return total;
+  return sizes.reduce((total, size) => total + size, 0);
 }
 
 async function directorySizeOrZero(path: string): Promise<number> {

@@ -1,7 +1,10 @@
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { loadConfig } from "./config.js";
 import { SessionStore } from "./db.js";
-import { MediaMtxControlClient, RecordingWatchdog, type MediaMtxControl, type MediaPathSnapshot } from "./recordingWatchdog.js";
+import { directorySize, MediaMtxControlClient, RecordingWatchdog, type MediaMtxControl, type MediaPathSnapshot } from "./recordingWatchdog.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -40,6 +43,22 @@ function setup(overrides: Record<string, unknown> = {}) {
 }
 
 describe("RecordingWatchdog", () => {
+  it("sums every retained file across concurrent directory scans", async () => {
+    const root = await mkdtemp(join(tmpdir(), "discus-storage-size-"));
+    try {
+      const nested = join(root, "nested");
+      await mkdir(nested);
+      await Promise.all([
+        writeFile(join(root, "original-a.mp4"), Buffer.alloc(3)),
+        writeFile(join(root, "original-b.mp4"), Buffer.alloc(5)),
+        writeFile(join(nested, "finalized.mp3"), Buffer.alloc(7)),
+      ]);
+      await expect(directorySize(root)).resolves.toBe(15);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("blocks recording until an initial archive scan succeeds and reports warnings", async () => {
     const fixture = setup();
     expect(fixture.watchdog.canCreateRecording()).toBe(false);
