@@ -6,6 +6,10 @@ import { randomToken, tokenHash } from "./security.js";
 
 export type SessionState = "ready" | "live" | "interrupted" | "ended" | "expired";
 export type SessionEndReason = "dj" | "owner" | "timeout";
+export type RecordingTerminationCode =
+  | "recording_media_policy"
+  | "recording_session_limit"
+  | "recording_archive_limit";
 
 export type RelaySession = {
   id: string;
@@ -17,6 +21,7 @@ export type RelaySession = {
   startedAt: string | null;
   endedAt: string | null;
   endedReason: SessionEndReason | null;
+  terminationCode: RecordingTerminationCode | null;
   djLastSeenAt: string | null;
   interruptedAt: string | null;
   listenerHistoryAvailable: boolean;
@@ -34,6 +39,7 @@ type SessionRow = {
   started_at: string | null;
   ended_at: string | null;
   ended_reason: SessionEndReason | null;
+  termination_code: RecordingTerminationCode | null;
   listener_tracking_started_at: string | null;
   dj_last_seen_at: string | null;
   interrupted_at: string | null;
@@ -71,6 +77,7 @@ function mapSession(row: SessionRow): RelaySession {
     startedAt: row.started_at,
     endedAt: concludedAtExpiration ? row.expires_at : row.ended_at,
     endedReason: concludedAtExpiration ? "timeout" : row.ended_reason,
+    terminationCode: concludedAtExpiration ? null : row.termination_code,
     djLastSeenAt: row.dj_last_seen_at,
     interruptedAt: row.interrupted_at,
     listenerHistoryAvailable: Boolean(row.listener_tracking_started_at),
@@ -99,6 +106,7 @@ export class SessionStore {
         started_at TEXT,
         ended_at TEXT,
         ended_reason TEXT CHECK (ended_reason IN ('dj', 'owner', 'timeout')),
+        termination_code TEXT CHECK (termination_code IN ('recording_media_policy', 'recording_session_limit', 'recording_archive_limit')),
         listener_tracking_started_at TEXT,
         dj_last_seen_at TEXT,
         interrupted_at TEXT,
@@ -147,6 +155,9 @@ export class SessionStore {
     if (!sessionColumns.some((column) => column.name === "recording_deleted_at")) {
       this.db.exec("ALTER TABLE sessions ADD COLUMN recording_deleted_at TEXT;");
     }
+    if (!sessionColumns.some((column) => column.name === "termination_code")) {
+      this.db.exec("ALTER TABLE sessions ADD COLUMN termination_code TEXT;");
+    }
     this.db.exec(`
       UPDATE sessions SET listener_tracking_started_at = NULL
       WHERE state = 'ready' AND started_at IS NULL
@@ -170,9 +181,10 @@ export class SessionStore {
       INSERT INTO sessions (
         id, name, media_path, dj_token_hash, listener_token_hash,
         state, created_at, expires_at, started_at, ended_at, ended_reason,
+        termination_code,
         listener_tracking_started_at, dj_last_seen_at, interrupted_at,
         recording_requested, recording_deleted_at
-      ) VALUES (?, ?, ?, ?, ?, 'ready', ?, ?, NULL, NULL, NULL, ?, ?, NULL, ?, NULL)
+      ) VALUES (?, ?, ?, ?, ?, 'ready', ?, ?, NULL, NULL, NULL, NULL, ?, ?, NULL, ?, NULL)
     `).run(
       id,
       name,
@@ -196,6 +208,7 @@ export class SessionStore {
       startedAt: null,
       endedAt: null,
       endedReason: null,
+      terminationCode: null,
       djLastSeenAt: createdAt.toISOString(),
       interruptedAt: null,
       listenerHistoryAvailable: true,
@@ -285,17 +298,26 @@ export class SessionStore {
     `).run(seenAt.toISOString(), sessionId);
   }
 
-  endStaleSessions(graceMs: number, now = new Date()): number {
+  endStaleSessions(graceMs: number, now = new Date(), activePublisherPaths: ReadonlySet<string> = new Set()): number {
     const cutoff = new Date(now.getTime() - graceMs).toISOString();
-    const result = this.db.prepare(`
-      UPDATE sessions SET state = 'ended', ended_at = ?, ended_reason = 'timeout'
+    const stale = this.db.prepare(`
+      SELECT id, media_path FROM sessions
       WHERE (
         state = 'live' AND (dj_last_seen_at IS NULL OR dj_last_seen_at <= ?)
       ) OR (
         state = 'interrupted' AND (COALESCE(interrupted_at, dj_last_seen_at) IS NULL OR COALESCE(interrupted_at, dj_last_seen_at) <= ?)
       )
-    `).run(now.toISOString(), cutoff, cutoff);
-    return Number(result.changes);
+    `).all(cutoff, cutoff) as Array<{ id: string; media_path: string }>;
+    const end = this.db.prepare(`
+      UPDATE sessions SET state = 'ended', ended_at = ?, ended_reason = 'timeout'
+      WHERE id = ? AND state IN ('live', 'interrupted')
+    `);
+    let changes = 0;
+    for (const session of stale) {
+      if (activePublisherPaths.has(session.media_path)) continue;
+      changes += Number(end.run(now.toISOString(), session.id).changes);
+    }
+    return changes;
   }
 
   exchangeInvite(token: string): { session: RelaySession; role: "dj" | "listener" } | null {
@@ -317,7 +339,12 @@ export class SessionStore {
     return Number(result.changes) > 0;
   }
 
-  setState(id: string, state: Exclude<SessionState, "expired">, endedReason: SessionEndReason = "dj"): RelaySession | null {
+  setState(
+    id: string,
+    state: Exclude<SessionState, "expired">,
+    endedReason: SessionEndReason | null = "dj",
+    terminationCode: RecordingTerminationCode | null = null,
+  ): RelaySession | null {
     const current = this.get(id);
     if (!current || current.state === "ended" || current.state === "expired") return current;
     const now = new Date().toISOString();
@@ -328,7 +355,9 @@ export class SessionStore {
         WHERE id = ?
       `).run(now, now, id);
     } else if (state === "ended") {
-      this.db.prepare("UPDATE sessions SET state = 'ended', ended_at = ?, ended_reason = ? WHERE id = ?").run(now, endedReason, id);
+      this.db.prepare(`
+        UPDATE sessions SET state = 'ended', ended_at = ?, ended_reason = ?, termination_code = ? WHERE id = ?
+      `).run(now, endedReason, terminationCode, id);
     } else {
       this.db.prepare(`
         UPDATE sessions

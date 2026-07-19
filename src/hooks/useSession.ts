@@ -8,7 +8,7 @@ export function useSession(expectedRole: "dj" | "listener") {
 
   const refresh = useCallback(async () => {
     try {
-      const next = await sessionApi.get();
+      const next = await sessionApi.get(expectedRole);
       if (next.role !== expectedRole) throw new Error("This invite link is for a different role");
       setData(next);
       setError("");

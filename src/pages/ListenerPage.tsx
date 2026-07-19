@@ -43,7 +43,7 @@ export function ListenerPage() {
     setConnection("connecting");
     setMessage("");
     try {
-      const credential = await sessionApi.mediaToken();
+      const credential = await sessionApi.mediaToken("listener");
       const reader = new WhepReader(credential.endpoint, credential.token, {
         onState: (state, detail) => {
           setConnection(state);
@@ -67,9 +67,17 @@ export function ListenerPage() {
   if (error) return <ListenerMessage title="Invite link required" message={error} />;
   if (!data) return <ListenerMessage title="Loading session" message="Checking your private listener invite…" />;
   if (data.session.state === "ended" || data.session.state === "expired") {
+    if (data.session.terminationCode) {
+      const enforcementMessage = data.session.terminationCode === "recording_media_policy"
+        ? "This session ended because the recording accepts one Opus audio track only."
+        : data.session.terminationCode === "recording_session_limit"
+          ? "This session ended after reaching its recording-size limit."
+          : "This session ended because recording storage reached its safe limit.";
+      return <ListenerMessage title="Session ended" message={enforcementMessage} />;
+    }
     if (data.session.recording.requested) {
       return (
-        <AppShell footer="Private recording · This replay remains available until the producer deletes it.">
+        <AppShell footer="Private recording · This replay remains available until the producer deletes it." showProducerLink={false}>
           <div className="listener-view replay-view">
             <RecordingPlayer sessionId={data.session.id} sessionName={data.session.name} />
           </div>
@@ -86,9 +94,15 @@ export function ListenerPage() {
   const statusLabel = waitingForDj ? "DJ disconnected" : live ? "Live now" : "Waiting for DJ";
   const waitingToStart = !live && !waitingForDj;
   return (
-    <AppShell footer="Private session · Share this page only with invited listeners.">
+    <AppShell footer="Private session · Share this page only with invited listeners." showProducerLink={false}>
       <div className="listener-view">
-        <Tag className={`listener-live-label ${live ? "is-live" : ""} ${waitingForDj ? "is-interrupted" : ""}`} color={live ? "error" : "default"}>
+        <Tag
+          className={`listener-live-label ${live ? "is-live" : ""} ${waitingForDj ? "is-interrupted" : ""}`}
+          color={live ? "error" : "default"}
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
           <AnimatedText value={statusLabel} />
           {waitingToStart && (
             <span className="waiting-activity" aria-hidden="true">
@@ -104,24 +118,24 @@ export function ListenerPage() {
           {waitingForDj ? "The DJ connection was lost. This page will reconnect automatically." : connected ? "You’re listening live." : live ? "The DJ is live. Press listen when you’re ready." : "This page will update when the broadcast starts."}
         </p>
         {waitingForDj ? (
-          <div className="listener-connection-status is-interrupted" role="status" aria-live="polite">
+          <div className="listener-connection-status is-interrupted">
             <WifiSlash size={22} weight="bold" aria-hidden="true" />
             <div>
-              <strong>Trying to reconnect</strong>
+              <strong role="status" aria-live="polite" aria-atomic="true">Trying to reconnect</strong>
               <span>Session closes in <time dateTime={`PT${remainingSeconds}S`}>{formatCountdown(remainingSeconds)}</time> if the DJ does not return.</span>
             </div>
           </div>
         ) : connection === "connecting" ? (
-          <div className="listener-connection-status" role="status">
+          <div className="listener-connection-status">
             <span className="listener-status-dot" aria-hidden="true" />
-            <div><strong>Connecting</strong><span>Opening the live audio stream…</span></div>
+            <div><strong role="status" aria-live="polite" aria-atomic="true">Connecting</strong><span>Opening the live audio stream…</span></div>
           </div>
         ) : connection === "idle" && live ? (
           <Button className="primary-button success-button" type="primary" onClick={() => void listen()}>Listen live</Button>
         ) : connection === "idle" ? (
           <Button className="primary-button muted-button" disabled>Waiting for broadcast</Button>
         ) : null}
-        {connected && !waitingForDj && <Tag className="connection-state is-good" color="success">Connection stable</Tag>}
+        {connected && !waitingForDj && <Tag className="connection-state is-good" color="success" role="status" aria-live="polite" aria-atomic="true">Connection stable</Tag>}
         {connection !== "idle" && connection !== "closed" && <audio ref={audioRef} className={`listener-player ${hasAudio ? "" : "is-pending"}`} controls aria-label="Discus live audio" />}
         {message && !waitingForDj && <InlineNotice tone={connection === "connected" ? "neutral" : "danger"}>{message}</InlineNotice>}
         <p className="listener-count compact"><span className="listener-icon" aria-hidden="true" />{data.session.listenerCount} listening</p>
@@ -130,6 +144,7 @@ export function ListenerPage() {
           label="Share session"
           description="Anyone with this link can listen."
           errorMessage="Could not create the session link."
+          copyLabel="Copy session link"
         />
       </div>
     </AppShell>
@@ -137,5 +152,5 @@ export function ListenerPage() {
 }
 
 function ListenerMessage({ title, message }: { title: string; message: string }) {
-  return <AppShell footer=""><div className="message-view"><h1>{title}</h1><p className="intro-copy">{message}</p></div></AppShell>;
+  return <AppShell footer="" showProducerLink={false}><div className="message-view"><h1>{title}</h1><p className="intro-copy">{message}</p></div></AppShell>;
 }

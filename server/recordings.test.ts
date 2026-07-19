@@ -12,6 +12,7 @@ const endedSession: RelaySession = {
   startedAt: "2026-07-17T19:05:00.000Z",
   endedAt: "2026-07-17T20:00:00.000Z",
   endedReason: "dj",
+  terminationCode: null,
   djLastSeenAt: "2026-07-17T20:00:00.000Z",
   interruptedAt: null,
   listenerHistoryAvailable: true,

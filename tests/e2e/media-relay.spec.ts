@@ -25,14 +25,14 @@ test("records a browser relay, replays it, and deletes the archive", async ({ pa
   await expect(dj.getByLabel("Audio input")).toBeVisible();
   await expect(dj.getByText("Signal detected")).toBeVisible({ timeout: 5_000 });
   await expect(dj.getByText(/Stereo/)).toBeVisible();
-  await dj.screenshot({ path: "/tmp/dj-relay-ready.png" });
+  await dj.screenshot({ path: "output/playwright/dj-relay-ready.png" });
   await expect(dj.getByText("This session will be recorded")).toBeVisible();
   const initialWhipResponse = dj.waitForResponse((response) => response.status() === 201 && response.url().includes("/whip"));
   await dj.getByRole("button", { name: "Start broadcast and recording" }).click();
   await expect(dj.getByRole("heading", { name: "You’re live" })).toBeVisible({ timeout: 15_000 });
   await expect(dj.getByText("Connection stable")).toBeVisible({ timeout: 15_000 });
   const whipResponse = await initialWhipResponse;
-  await dj.screenshot({ path: "/tmp/dj-relay-live.png" });
+  await dj.screenshot({ path: "output/playwright/dj-relay-live.png" });
 
   const listenerContext = await browser.newContext({
     baseURL: process.env.E2E_BASE_URL ?? "http://127.0.0.1:3000",
@@ -112,7 +112,7 @@ test("records a browser relay, replays it, and deletes the archive", async ({ pa
   expect(downloadResponse.disposition).toContain("attachment;");
   expect(downloadResponse.disposition).toContain(".mp3");
   expect(downloadResponse.size).toBeGreaterThan(0);
-  await listener.screenshot({ path: "/tmp/discus-recording-live-replay.png" });
+  await listener.screenshot({ path: "output/playwright/discus-recording-live-replay.png" });
 
   const recording = page.locator(".session-row").filter({ hasText: sessionName });
   await expect(recording).toContainText("recording ready", { timeout: 15_000 });

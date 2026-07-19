@@ -9,6 +9,7 @@ export const transcodeToMp3: Mp3Transcoder = async (input, output, signal) => {
     "-hide_banner",
     "-loglevel", "error",
     "-i", "pipe:0",
+    "-threads", "1",
     "-map", "0:a:0",
     "-vn",
     "-c:a", "libmp3lame",

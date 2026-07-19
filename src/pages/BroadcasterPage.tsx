@@ -94,7 +94,7 @@ export function BroadcasterPage() {
     setConnection("connecting");
     setConnectionMessage("");
     try {
-      const credential = await sessionApi.mediaToken();
+      const credential = await sessionApi.mediaToken("dj");
       const publisher = new WhipPublisher(credential.endpoint, credential.token, audio.stream, {
         onState: (state, message) => {
           setConnection(state);
@@ -160,12 +160,19 @@ export function BroadcasterPage() {
   }
   if (!data) return <MessageScreen title="Loading session" message="Checking your private DJ invite…" />;
   if (data.session.state === "ended") {
-    return <MessageScreen title="Broadcast ended" message="This session is closed. You can safely close this tab." />;
+    const enforcementMessage = data.session.terminationCode === "recording_media_policy"
+      ? "The broadcast ended because the recording accepts one Opus audio track only."
+      : data.session.terminationCode === "recording_session_limit"
+        ? "The broadcast ended because this session reached its recording-size limit."
+        : data.session.terminationCode === "recording_archive_limit"
+          ? "The broadcast ended because recording storage reached its safe limit."
+          : "This session is closed. You can safely close this tab.";
+    return <MessageScreen title="Broadcast ended" message={enforcementMessage} />;
   }
 
   if (audio.permission !== "granted") {
     return (
-      <AppShell>
+      <AppShell showProducerLink={false}>
         <div className="permission-view">
           <h1>Choose your audio</h1>
           <p className="intro-copy">Connect your mixer or audio interface, then allow access to select it.</p>
@@ -184,7 +191,7 @@ export function BroadcasterPage() {
     connection === "connecting" ? "Connecting…" : "Broadcast ended";
 
   return (
-    <AppShell>
+    <AppShell showProducerLink={false}>
       <div className="broadcast-stage t-page-slide" data-page={showLiveStage ? "2" : "1"} style={stageHeight === undefined ? undefined : { height: stageHeight }}>
         <div className="ready-view t-page broadcast-setup-page" data-page-id="1" ref={setupPageRef} aria-hidden={showLiveStage} inert={showLiveStage}>
           <h1>Choose your audio</h1>
@@ -219,15 +226,23 @@ export function BroadcasterPage() {
           {data.session.recording.requested && <Tag className="live-recording-tag" color="error"><span className="recording-dot" aria-hidden="true" />Recording</Tag>}
           <div className="timer" aria-label="Broadcast duration">{formatElapsed(data.session.startedAt ?? startedAt, now)}</div>
           <StereoMeter levels={levels} />
-          <Tag className={`connection-state ${connected ? "is-good" : "is-warn"}`} color={connected ? "success" : "warning"}><AnimatedText value={stateText} /></Tag>
+          <Tag
+            className={`connection-state ${connected ? "is-good" : "is-warn"}`}
+            color={connected ? "success" : "warning"}
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+          ><AnimatedText value={stateText} /></Tag>
           {connectionMessage && connection === "reconnecting" && <p className="connection-detail">{connectionMessage}</p>}
           <p className="listener-count"><span className="listener-icon" aria-hidden="true" />{data.session.listenerCount} listening</p>
           <SessionShare
             sessionId={data.session.id}
+            role="dj"
             label="Audience link"
             description="Anyone with this link can listen."
             errorMessage="Could not create the audience link."
             className="broadcast-share"
+            copyLabel="Copy audience link"
           />
           <Button className="primary-button danger-button" type="primary" danger loading={ending} onClick={() => void endBroadcast()}>
             {ending ? "Ending broadcast…" : "End broadcast"}
@@ -275,5 +290,5 @@ function DjQuickStart() {
 }
 
 function MessageScreen({ title, message }: { title: string; message: string }) {
-  return <AppShell footer=""><div className="message-view"><h1>{title}</h1><p className="intro-copy">{message}</p></div></AppShell>;
+  return <AppShell footer="" showProducerLink={false}><div className="message-view"><h1>{title}</h1><p className="intro-copy">{message}</p></div></AppShell>;
 }

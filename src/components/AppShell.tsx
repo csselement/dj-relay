@@ -5,6 +5,8 @@ type AppShellProps = {
   contentClassName?: string;
   footer?: ReactNode;
   shellClassName?: string;
+  headerAction?: ReactNode;
+  showProducerLink?: boolean;
 };
 
 export function AppShell({
@@ -12,6 +14,8 @@ export function AppShell({
   contentClassName = "",
   footer = "Keep this tab open while you play.",
   shellClassName = "",
+  headerAction,
+  showProducerLink = true,
 }: AppShellProps) {
   return (
     <div className={`app-shell ${footer ? "" : "app-shell-no-footer"} ${shellClassName}`.trim()}>
@@ -22,7 +26,7 @@ export function AppShell({
             <span>Discus</span>
           </a>
           <div className="app-header-actions">
-            <a className="header-console-link" href="/admin">Producer console</a>
+            {headerAction ?? (showProducerLink && <a className="header-console-link" href="/admin">Producer console</a>)}
           </div>
         </div>
       </header>

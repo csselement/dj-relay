@@ -106,6 +106,24 @@ describe("SessionStore migrations and lifecycle", () => {
     }
   });
 
+  it("does not time out a stale browser heartbeat while its media publisher is active", () => {
+    const store = new SessionStore(":memory:");
+    try {
+      const session = store.create("Publisher remains live", 4);
+      store.setState(session.id, "live");
+      const staleAt = new Date(Date.now() - 60_000);
+      store.touchDj(session.id, staleAt);
+
+      expect(store.endStaleSessions(60_000, new Date(), new Set([session.mediaPath]))).toBe(0);
+      expect(store.get(session.id)?.state).toBe("live");
+
+      expect(store.endStaleSessions(60_000, new Date(), new Set())).toBe(1);
+      expect(store.get(session.id)).toMatchObject({ state: "ended", endedReason: "timeout" });
+    } finally {
+      store.close();
+    }
+  });
+
   it("does not let heartbeats extend an interrupted stream countdown", () => {
     const store = new SessionStore(":memory:");
     try {

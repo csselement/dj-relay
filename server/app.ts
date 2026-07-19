@@ -15,10 +15,15 @@ import {
   type RecordingSummary,
 } from "./recordings.js";
 import { safeEqual, signToken, verifyToken, type TokenPayload } from "./security.js";
+import { delayResponse, LoginAttemptLimiter } from "./loginLimiter.js";
+import { MediaMtxControlClient, type MediaMtxControl, type RecordingStorageStatus } from "./recordingWatchdog.js";
+import { TranscodeCapacityError, TranscodeScheduler } from "./transcodeScheduler.js";
 import { transcodeToMp3, type Mp3Transcoder } from "./transcoding.js";
 
 const ADMIN_COOKIE = "djrelay_admin";
-const INVITE_COOKIE = "djrelay_invite";
+const LEGACY_INVITE_COOKIE = "djrelay_invite";
+const DJ_INVITE_COOKIE = "djrelay_dj_invite";
+const LISTENER_INVITE_COOKIE = "djrelay_listener_invite";
 type InviteTokenPayload = Extract<TokenPayload, { kind: "invite" }>;
 
 type AppDependencies = {
@@ -27,6 +32,13 @@ type AppDependencies = {
   discordNotifier?: (announcement: DiscordSessionAnnouncement) => Promise<void>;
   recordings?: RecordingBackend;
   mp3Transcoder?: Mp3Transcoder;
+  loginLimiter?: LoginAttemptLimiter;
+  transcodeScheduler?: TranscodeScheduler;
+  recordingGuard?: {
+    canCreateRecording(): boolean;
+    getStatus(): RecordingStorageStatus;
+  };
+  mediaMtx?: MediaMtxControl;
 };
 
 function expiresIn(seconds: number): number {
@@ -43,8 +55,18 @@ function cookieOptions(config: AppConfig, maxAge: number) {
   };
 }
 
-function sendError(res: Response, status: number, error: string): void {
-  res.status(status).json({ error });
+function sendError(res: Response, status: number, error: string, code?: string, retryAfterSeconds?: number): void {
+  if (retryAfterSeconds !== undefined) res.setHeader("Retry-After", String(retryAfterSeconds));
+  res.status(status).json({ error, ...(code ? { code } : {}) });
+}
+
+async function mediaMtxAvailable(config: AppConfig): Promise<boolean> {
+  try {
+    const response = await fetch(`${config.mediaMtxApiUrl}/v3/info`, { signal: AbortSignal.timeout(1200) });
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
 
 async function getListenerCount(config: AppConfig, path: string): Promise<number> {
@@ -66,9 +88,32 @@ function adminPayload(req: Request, config: AppConfig): TokenPayload | null {
   return payload?.kind === "admin" ? payload : null;
 }
 
-function invitePayload(req: Request, config: AppConfig): InviteTokenPayload | null {
-  const payload = verifyToken(req.cookies?.[INVITE_COOKIE], config.tokenSecret);
+function roleCookie(role: "dj" | "listener"): string {
+  return role === "dj" ? DJ_INVITE_COOKIE : LISTENER_INVITE_COOKIE;
+}
+
+function verifiedInviteCookie(req: Request, config: AppConfig, name: string): InviteTokenPayload | null {
+  const payload = verifyToken(req.cookies?.[name], config.tokenSecret);
   return payload?.kind === "invite" ? payload : null;
+}
+
+function invitePayload(req: Request, config: AppConfig, expectedRole?: "dj" | "listener"): InviteTokenPayload | null {
+  if (expectedRole) {
+    const roleInvite = verifiedInviteCookie(req, config, roleCookie(expectedRole));
+    if (roleInvite?.role === expectedRole) return roleInvite;
+    const legacyInvite = verifiedInviteCookie(req, config, LEGACY_INVITE_COOKIE);
+    return legacyInvite?.role === expectedRole ? legacyInvite : null;
+  }
+
+  const requestedRole = req.get("X-Discus-Role");
+  if (requestedRole === "dj" || requestedRole === "listener") {
+    return invitePayload(req, config, requestedRole);
+  }
+  const djInvite = verifiedInviteCookie(req, config, DJ_INVITE_COOKIE);
+  const listenerInvite = verifiedInviteCookie(req, config, LISTENER_INVITE_COOKIE);
+  if (djInvite && !listenerInvite) return djInvite;
+  if (listenerInvite && !djInvite) return listenerInvite;
+  return verifiedInviteCookie(req, config, LEGACY_INVITE_COOKIE);
 }
 
 function requireAdmin(config: AppConfig) {
@@ -78,9 +123,9 @@ function requireAdmin(config: AppConfig) {
   };
 }
 
-function requireInvite(config: AppConfig, store: SessionStore) {
+function requireInvite(config: AppConfig, store: SessionStore, expectedRole?: "dj" | "listener") {
   return (req: Request, res: Response, next: NextFunction): void => {
-    const payload = invitePayload(req, config);
+    const payload = invitePayload(req, config, expectedRole);
     if (!payload?.sessionId || !payload.role) return sendError(res, 401, "Invite link required");
     const session = store.get(payload.sessionId);
     if (!session || (session.state === "expired" && payload.role === "dj" && !payload.producerPreview)) {
@@ -111,6 +156,7 @@ function publicSession(
     startedAt: session.startedAt,
     endedAt: session.endedAt,
     endedReason: session.endedReason,
+    terminationCode: session.terminationCode,
     listenerHistoryAvailable: session.listenerHistoryAvailable,
     listenerCount,
     uniqueListenerCount,
@@ -143,6 +189,29 @@ export function createApp({
   discordNotifier = announceDiscordSession,
   recordings = new MediaMtxRecordingBackend(config.mediaMtxPlaybackUrl, config.mediaMtxApiUrl),
   mp3Transcoder = transcodeToMp3,
+  loginLimiter = new LoginAttemptLimiter({
+    windowMs: config.loginWindowMs,
+    maxFailuresPerClient: config.loginClientFailureLimit,
+    maxFailuresGlobal: config.loginGlobalFailureLimit,
+    maxTrackedClients: config.loginTrackedClientLimit,
+    baseDelayMs: 250,
+    maxDelayMs: 4_000,
+  }),
+  transcodeScheduler = new TranscodeScheduler({
+    maxActive: config.transcodeMaxActive,
+    maxQueued: config.transcodeMaxQueued,
+    queueTimeoutMs: config.transcodeQueueWaitMs,
+    jobTimeoutMs: config.transcodeTimeoutMs,
+    onEvent: (event) => console.log(JSON.stringify({ level: "warn", event: `transcode_${event.type}`, ...event })),
+  }),
+  recordingGuard = {
+    canCreateRecording: () => true,
+    getStatus: () => ({
+      state: "ok", initialized: true, usedBytes: 0, maxBytes: config.recordingArchiveMaxBytes,
+      freeBytes: null, sessionMaxBytes: config.recordingSessionMaxBytes, lastSuccessfulScanAt: null,
+    }),
+  },
+  mediaMtx = new MediaMtxControlClient(config.mediaMtxApiUrl),
 }: AppDependencies) {
   const app = express();
   app.disable("x-powered-by");
@@ -168,39 +237,69 @@ export function createApp({
     );
   }
 
-  async function streamRecordingPart(session: RelaySession, index: number, downloadMp3: boolean, res: Response): Promise<void> {
-    const parts = await recordings.listParts(session.mediaPath);
-    const part = parts[index];
-    if (!part) return sendError(res, 404, "Recording part not found");
+  async function endSessionsWithoutPublishers(): Promise<number> {
+    const cutoff = Date.now() - config.djDisconnectGraceMs;
+    const hasStaleSession = store.list().some((session) => {
+      if (session.state !== "live" && session.state !== "interrupted") return false;
+      const lastLiveAt = session.state === "interrupted" ? session.interruptedAt ?? session.djLastSeenAt : session.djLastSeenAt;
+      return !lastLiveAt || new Date(lastLiveAt).getTime() <= cutoff;
+    });
+    if (!hasStaleSession) return 0;
+    try {
+      const paths = await mediaMtx.listPaths();
+      const activePublisherPaths = new Set(paths
+        .filter((path) => Boolean(path.sourceType && path.sourceId))
+        .map((path) => path.name));
+      return store.endStaleSessions(config.djDisconnectGraceMs, new Date(), activePublisherPaths);
+    } catch (error) {
+      console.error(JSON.stringify({
+        level: "warn",
+        event: "session_liveness_scan_failed",
+        error: error instanceof Error ? error.message : "Unknown error",
+      }));
+      return 0;
+    }
+  }
 
+  async function streamRecordingPart(session: RelaySession, index: number, downloadMp3: boolean, res: Response): Promise<void> {
     const controller = new AbortController();
     const abort = () => {
       if (!res.writableEnded) controller.abort();
     };
     res.once("close", abort);
     try {
-      const upstream = await recordings.fetchPart(session.mediaPath, part, controller.signal);
-      if (!upstream.ok || !upstream.body) return sendError(res, 502, "Recording playback is temporarily unavailable");
-      res.status(upstream.status);
-      res.setHeader("Cache-Control", "private, no-store");
-      const safeName = session.name.normalize("NFKD")
-        .replace(/[^a-zA-Z0-9._-]+/g, "-")
-        .replace(/^-+|-+$/g, "")
-        .slice(0, 80) || "discus-recording";
-      const input = Readable.fromWeb(upstream.body as NodeReadableStream<Uint8Array>);
-      if (downloadMp3) {
-        const filename = parts.length > 1 ? `${safeName}-part-${index + 1}.mp3` : `${safeName}.mp3`;
-        res.setHeader("Content-Type", "audio/mpeg");
-        res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-        await mp3Transcoder(input, res, controller.signal);
-      } else {
+      const stream = async (signal: AbortSignal) => {
+        const parts = await recordings.listParts(session.mediaPath);
+        const part = parts[index];
+        if (!part) return sendError(res, 404, "Recording part not found");
+        const upstream = await recordings.fetchPart(session.mediaPath, part, signal);
+        if (!upstream.ok || !upstream.body) return sendError(res, 502, "Recording playback is temporarily unavailable");
+        res.status(upstream.status);
+        res.setHeader("Cache-Control", "private, no-store");
+        const safeName = session.name.normalize("NFKD")
+          .replace(/[^a-zA-Z0-9._-]+/g, "-")
+          .replace(/^-+|-+$/g, "")
+          .slice(0, 80) || "discus-recording";
+        const input = Readable.fromWeb(upstream.body as NodeReadableStream<Uint8Array>);
+        if (downloadMp3) {
+          const filename = parts.length > 1 ? `${safeName}-part-${index + 1}.mp3` : `${safeName}.mp3`;
+          res.setHeader("Content-Type", "audio/mpeg");
+          res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+          await mp3Transcoder(input, res, signal);
+          return;
+        }
         res.setHeader("Content-Type", upstream.headers.get("content-type") ?? "video/mp4");
         res.setHeader("Content-Disposition", "inline");
         const contentLength = upstream.headers.get("content-length");
         if (contentLength) res.setHeader("Content-Length", contentLength);
         await pipeline(input, res);
-      }
+      };
+      if (downloadMp3) await transcodeScheduler.run(controller.signal, stream);
+      else await stream(controller.signal);
     } catch (error) {
+      if (error instanceof TranscodeCapacityError && error.code !== "aborted" && !res.headersSent) {
+        return sendError(res, 503, error.message, `transcode_${error.code}`, 10);
+      }
       if (!controller.signal.aborted && !res.headersSent) {
         sendError(res, 502, error instanceof Error ? error.message : "Recording playback failed");
       } else if (!controller.signal.aborted && !res.writableEnded) {
@@ -212,29 +311,35 @@ export function createApp({
   }
 
   app.get("/api/health", async (_req, res) => {
-    let mediaMtx = false;
-    try {
-      const response = await fetch(`${config.mediaMtxApiUrl}/v3/info`, {
-        signal: AbortSignal.timeout(1200),
-      });
-      mediaMtx = response.ok;
-    } catch {
-      mediaMtx = false;
-    }
+    const mediaMtx = await mediaMtxAvailable(config);
     res.json({ ok: true, mediaMtx });
   });
 
-  app.post("/api/admin/login", (req, res) => {
+  app.post("/api/admin/login", async (req, res) => {
+    const clientKey = req.ip || "unknown";
+    const admission = loginLimiter.check(clientKey);
+    if (!admission.allowed) {
+      console.log(JSON.stringify({
+        level: "warn",
+        event: "producer_login_throttled",
+        scope: admission.scope,
+        retryAfterSeconds: admission.retryAfterSeconds,
+      }));
+      return sendError(res, 429, "Too many sign-in attempts. Try again later.", "login_throttled", admission.retryAfterSeconds);
+    }
     const password = typeof req.body?.password === "string" ? req.body.password : "";
     if (!password || !safeEqual(password, config.adminPassword)) {
+      const failure = loginLimiter.recordFailure(clientKey);
+      await delayResponse(failure.delayMs);
       return sendError(res, 401, "Incorrect producer password");
     }
+    loginLimiter.clearClient(clientKey);
     const token = signToken({ kind: "admin", exp: expiresIn(12 * 60 * 60) }, config.tokenSecret);
     res.cookie(ADMIN_COOKIE, token, cookieOptions(config, 12 * 60 * 60 * 1000));
     res.json({ ok: true });
   });
 
-  app.post("/api/admin/logout", (_req, res) => {
+  app.post("/api/admin/logout", requireAdmin(config), (_req, res) => {
     res.clearCookie(ADMIN_COOKIE, { path: "/" });
     res.json({ ok: true });
   });
@@ -243,8 +348,24 @@ export function createApp({
     res.json({ authenticated: Boolean(adminPayload(req, config)) });
   });
 
+  app.get("/api/admin/status", requireAdmin(config), async (_req, res) => {
+    const storage = recordingGuard.getStatus();
+    res.json({
+      mediaMtx: await mediaMtxAvailable(config),
+      recording: {
+        state: storage.state,
+        usedBytes: storage.usedBytes,
+        maxBytes: storage.maxBytes,
+        freeBytes: storage.freeBytes,
+        sessionMaxBytes: storage.sessionMaxBytes,
+        lastSuccessfulScanAt: storage.lastSuccessfulScanAt,
+      },
+      transcode: transcodeScheduler.status(),
+    });
+  });
+
   app.get("/api/admin/sessions", requireAdmin(config), async (req, res) => {
-    store.endStaleSessions(config.djDisconnectGraceMs);
+    await endSessionsWithoutPublishers();
     const requestedHistoryLimit = Number(req.query.historyLimit ?? 20);
     const historyLimit = Number.isSafeInteger(requestedHistoryLimit) && requestedHistoryLimit > 0 ?
       requestedHistoryLimit : 20;
@@ -273,6 +394,14 @@ export function createApp({
       return sendError(res, 400, "Expiration must be between 1 and 72 hours");
     }
     if (typeof recordingRequested !== "boolean") return sendError(res, 400, "Recording selection must be true or false");
+    if (recordingRequested && !recordingGuard.canCreateRecording()) {
+      return sendError(
+        res,
+        503,
+        "Recording is unavailable. Delete archived sessions to restore recording capacity, or create an unrecorded session.",
+        "recording_unavailable",
+      );
+    }
 
     const session = store.create(name, expiresInHours, recordingRequested);
     const origin = `${req.protocol}://${req.get("host")}`;
@@ -302,7 +431,7 @@ export function createApp({
       producerPreview: true,
       exp,
     }, config.tokenSecret);
-    res.cookie(INVITE_COOKIE, cookie, cookieOptions(config, Math.max(0, exp * 1000 - Date.now())));
+    res.cookie(LISTENER_INVITE_COOKIE, cookie, cookieOptions(config, Math.max(0, exp * 1000 - Date.now())));
     res.redirect("/listen");
   });
 
@@ -359,7 +488,7 @@ export function createApp({
 
     const concluded = result.session.state === "ended" || result.session.state === "expired";
     const exp = concluded ? expiresIn(12 * 60 * 60) : Math.floor(new Date(result.session.expiresAt).getTime() / 1000);
-    const existingInvite = invitePayload(req, config);
+    const existingInvite = invitePayload(req, config, result.role);
     const listenerId = result.role === "listener" ?
       (existingInvite?.role === "listener" && existingInvite.sessionId === result.session.id && existingInvite.listenerId ?
         existingInvite.listenerId : randomUUID()) : undefined;
@@ -370,7 +499,7 @@ export function createApp({
       listenerId,
       exp,
     }, config.tokenSecret);
-    res.cookie(INVITE_COOKIE, cookie, cookieOptions(config, Math.max(0, exp * 1000 - Date.now())));
+    res.cookie(roleCookie(result.role), cookie, cookieOptions(config, Math.max(0, exp * 1000 - Date.now())));
     res.json({
       role: result.role,
       session: await serializeSession(result.session),
@@ -380,7 +509,7 @@ export function createApp({
 
   app.get("/api/session", requireInvite(config, store), async (_req, res) => {
     const invite = res.locals.invite as InviteTokenPayload;
-    store.endStaleSessions(config.djDisconnectGraceMs);
+    await endSessionsWithoutPublishers();
     let session = store.get((res.locals.session as RelaySession).id) as RelaySession;
     if (invite.role === "dj" && session.state !== "ended" && session.state !== "expired") {
       store.touchDj(session.id);
@@ -390,8 +519,8 @@ export function createApp({
     res.json({ role: invite.role, session: await serializeSession(session, listenerCount) });
   });
 
-  app.post("/api/session/media-token", requireInvite(config, store), (req, res) => {
-    store.endStaleSessions(config.djDisconnectGraceMs);
+  app.post("/api/session/media-token", requireInvite(config, store), async (req, res) => {
+    await endSessionsWithoutPublishers();
     const session = store.get((res.locals.session as RelaySession).id) as RelaySession;
     const invite = res.locals.invite as InviteTokenPayload;
     if (session.state === "ended" || session.state === "expired") return sendError(res, 410, "This broadcast has ended");
@@ -400,7 +529,7 @@ export function createApp({
     if (invite.role === "listener" && !listenerId) {
       listenerId = randomUUID();
       const upgradedInvite = signToken({ ...invite, listenerId }, config.tokenSecret);
-      res.cookie(INVITE_COOKIE, upgradedInvite, cookieOptions(config, Math.max(0, invite.exp * 1000 - Date.now())));
+      res.cookie(LISTENER_INVITE_COOKIE, upgradedInvite, cookieOptions(config, Math.max(0, invite.exp * 1000 - Date.now())));
     }
     const token = signToken({
       kind: "media",
@@ -417,12 +546,12 @@ export function createApp({
     });
   });
 
-  app.post("/api/session/share-link", requireInvite(config, store), (req, res) => {
+  app.post("/api/session/share-link", requireInvite(config, store), async (req, res) => {
     const invite = res.locals.invite as InviteTokenPayload;
     if (invite.role !== "listener" && invite.role !== "dj") {
       return sendError(res, 403, "DJ or listener access required");
     }
-    store.endStaleSessions(config.djDisconnectGraceMs);
+    await endSessionsWithoutPublishers();
     const session = store.get((res.locals.session as RelaySession).id);
     if (!session) return sendError(res, 410, "This session is no longer available");
 
@@ -435,7 +564,7 @@ export function createApp({
     res.json({ url: `${origin}/s/${token}` });
   });
 
-  app.get("/api/session/recording", requireInvite(config, store), async (_req, res) => {
+  app.get("/api/session/recording", requireInvite(config, store, "listener"), async (_req, res) => {
     const invite = res.locals.invite as InviteTokenPayload;
     if (invite.role !== "listener") return sendError(res, 403, "Listener access required");
     const session = store.get((res.locals.session as RelaySession).id);
@@ -453,7 +582,7 @@ export function createApp({
     });
   });
 
-  app.get("/api/session/recording/parts/:index", requireInvite(config, store), async (req, res) => {
+  app.get("/api/session/recording/parts/:index", requireInvite(config, store, "listener"), async (req, res) => {
     const invite = res.locals.invite as InviteTokenPayload;
     if (invite.role !== "listener") return sendError(res, 403, "Listener access required");
     const session = store.get((res.locals.session as RelaySession).id);
@@ -473,7 +602,7 @@ export function createApp({
     if (requested !== "live" && requested !== "interrupted" && requested !== "ended") {
       return sendError(res, 400, "Invalid broadcast state");
     }
-    if (requested !== "ended") store.endStaleSessions(config.djDisconnectGraceMs);
+    if (requested !== "ended") await endSessionsWithoutPublishers();
     const updated = store.setState(session.id, requested);
     if (requested === "live" && !session.startedAt && updated?.startedAt) {
       const token = signToken({
@@ -501,7 +630,7 @@ export function createApp({
     res.json({ session: updated ? await serializeSession(updated) : null });
   });
 
-  app.post("/internal/mediamtx-auth", (req, res) => {
+  app.post("/internal/mediamtx-auth", async (req, res) => {
     const secret = typeof req.query.secret === "string" ? req.query.secret : "";
     if (!safeEqual(secret, config.mediaAuthSecret)) return res.sendStatus(403);
 
@@ -511,7 +640,7 @@ export function createApp({
     const payload = verifyToken(token, config.tokenSecret);
     if (!payload || payload.kind !== "media" || payload.path !== path || !payload.sessionId) return res.sendStatus(403);
 
-    store.endStaleSessions(config.djDisconnectGraceMs);
+    await endSessionsWithoutPublishers();
     const session = store.get(payload.sessionId);
     if (!session || session.state === "ended" || session.state === "expired") return res.sendStatus(403);
     const allowed = (payload.role === "dj" && action === "publish") ||

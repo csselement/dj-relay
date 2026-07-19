@@ -65,6 +65,12 @@ When the broadcast ends, its original listener link and any shared listener link
 
 The `relay-recordings` Docker volume stores media separately from SQLite and is retained across deployments until a producer deletes it. It is not included in the SQLite backup or copied off-device. MediaMTX playback on port 9996 is reachable only inside the Docker network; the application authorizes and proxies every replay request.
 
+Discus intentionally keeps manual producer deletion as its retention policy. A read-only application watchdog observes the recording volume every five seconds for active sessions and every 60 seconds for aggregate archive use. It allows exactly one Opus audio track, limits publisher ingress to a rolling 128 KiB/s, ends a recording session at 8 GiB, blocks the archive at 256 GiB or 100 GiB of remaining host space, and warns at 90% archive use or below 150 GiB free. New unrecorded sessions remain available while recording is blocked. Policy and capacity terminations are stored on the session so DJs, listeners, and producers receive an explicit reason.
+
+This watchdog is operational protection, not filesystem isolation. A recording can overshoot a byte threshold by data written between scans. If the monitor loses access to the volume or MediaMTX API, Discus fails closed for new recorded sessions but preserves already-active recordings unless a measured limit was crossed. Operators should treat `recording_watchdog_error`, `recording_storage_warning`, and `recording_storage_blocked` events as requiring prompt investigation.
+
+On-demand MP3 conversion is limited to two active and four queued FFmpeg jobs. Queue admission occurs before recording media is fetched; waiting requests time out after five seconds, jobs terminate after 15 minutes, and each FFmpeg process uses one worker thread.
+
 ### Discord announcements
 
 To announce the first time a session goes live in one Discord channel, create an incoming webhook in that channel's **Integrations → Webhooks** settings and add its URL to `.env`:

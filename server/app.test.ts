@@ -8,6 +8,8 @@ import type { DiscordSessionAnnouncement } from "./discord.js";
 import type { RecordingBackend, RecordingPart } from "./recordings.js";
 import { verifyToken } from "./security.js";
 import type { Mp3Transcoder } from "./transcoding.js";
+import { LoginAttemptLimiter } from "./loginLimiter.js";
+import type { MediaMtxControl } from "./recordingWatchdog.js";
 
 const passthroughMp3Transcoder: Mp3Transcoder = async (input, output) => {
   await pipeline(input, output);
@@ -16,6 +18,10 @@ const passthroughMp3Transcoder: Mp3Transcoder = async (input, output) => {
 function testApp(
   discordNotifier?: (announcement: DiscordSessionAnnouncement) => Promise<void>,
   recordings?: RecordingBackend,
+  mediaMtx: MediaMtxControl = {
+    listPaths: async () => [],
+    kickWebRtcSession: async () => undefined,
+  },
 ) {
   const config = loadConfig({
     databasePath: ":memory:",
@@ -28,7 +34,7 @@ function testApp(
   });
   const store = new SessionStore(":memory:");
   return {
-    app: createApp({ config, store, discordNotifier, recordings, mp3Transcoder: passthroughMp3Transcoder }),
+    app: createApp({ config, store, discordNotifier, recordings, mp3Transcoder: passthroughMp3Transcoder, mediaMtx }),
     store,
     config,
   };
@@ -47,6 +53,83 @@ function recordingBackend(parts: RecordingPart[] = []) {
 describe("Discus API", () => {
   const stores: SessionStore[] = [];
   afterEach(() => stores.splice(0).forEach((store) => store.close()));
+
+  it("throttles producer login by trusted proxy client before testing a correct password", async () => {
+    const config = loadConfig({
+      databasePath: ":memory:",
+      adminPassword: "owner-test-password",
+      tokenSecret: "unit-test-token-secret-with-more-than-32-bytes",
+      mediaAuthSecret: "unit-test-media-auth-secret",
+      secureCookies: false,
+    });
+    const store = new SessionStore(":memory:"); stores.push(store);
+    const loginLimiter = new LoginAttemptLimiter({
+      windowMs: 60_000,
+      maxFailuresPerClient: 10,
+      maxFailuresGlobal: 200,
+      maxTrackedClients: 100,
+      baseDelayMs: 0,
+      maxDelayMs: 0,
+    });
+    const app = createApp({ config, store, loginLimiter });
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await request(app).post("/api/admin/login").set("X-Forwarded-For", "198.51.100.10").send({ password: "wrong" }).expect(401);
+    }
+    await request(app).post("/api/admin/login")
+      .set("X-Forwarded-For", "198.51.100.10")
+      .send({ password: "owner-test-password" })
+      .expect(429)
+      .expect("Retry-After", /\d+/)
+      .expect(({ body }) => expect(body.code).toBe("login_throttled"));
+    await request(app).post("/api/admin/login")
+      .set("X-Forwarded-For", "198.51.100.11")
+      .send({ password: "owner-test-password" })
+      .expect(200);
+  });
+
+  it("applies the global producer-login ceiling across concurrent clients", async () => {
+    const config = loadConfig({
+      databasePath: ":memory:", adminPassword: "owner-test-password",
+      tokenSecret: "unit-test-token-secret-with-more-than-32-bytes", mediaAuthSecret: "unit-test-media-auth-secret", secureCookies: false,
+    });
+    const store = new SessionStore(":memory:"); stores.push(store);
+    const loginLimiter = new LoginAttemptLimiter({
+      windowMs: 60_000, maxFailuresPerClient: 10, maxFailuresGlobal: 2, maxTrackedClients: 100, baseDelayMs: 0, maxDelayMs: 0,
+    });
+    const app = createApp({ config, store, loginLimiter });
+    await Promise.all([
+      request(app).post("/api/admin/login").set("X-Forwarded-For", "198.51.100.21").send({ password: "wrong" }).expect(401),
+      request(app).post("/api/admin/login").set("X-Forwarded-For", "198.51.100.22").send({ password: "wrong" }).expect(401),
+    ]);
+    await request(app).post("/api/admin/login").set("X-Forwarded-For", "198.51.100.23")
+      .send({ password: "owner-test-password" }).expect(429).expect(({ body }) => expect(body.code).toBe("login_throttled"));
+  });
+
+  it("protects runtime status and permits unrecorded sessions while recording is blocked", async () => {
+    const config = loadConfig({
+      databasePath: ":memory:", adminPassword: "owner-test-password",
+      tokenSecret: "unit-test-token-secret-with-more-than-32-bytes", mediaAuthSecret: "unit-test-media-auth-secret", secureCookies: false,
+    });
+    const store = new SessionStore(":memory:"); stores.push(store);
+    const recordingGuard = {
+      canCreateRecording: () => false,
+      getStatus: () => ({
+        state: "blocked" as const, initialized: true, usedBytes: 1_000, maxBytes: 1_000, freeBytes: 100,
+        sessionMaxBytes: 100, lastSuccessfulScanAt: "2026-07-18T20:00:00.000Z",
+      }),
+    };
+    const app = createApp({ config, store, recordingGuard });
+    await request(app).get("/api/admin/status").expect(401);
+    const owner = request.agent(app);
+    await owner.post("/api/admin/login").send({ password: "owner-test-password" }).expect(200);
+    await owner.get("/api/admin/status").expect(200).expect(({ body }) => {
+      expect(body.recording).toMatchObject({ state: "blocked", usedBytes: 1_000, maxBytes: 1_000 });
+      expect(body.transcode).toMatchObject({ active: 0, queued: 0, maxActive: 2, maxQueued: 4 });
+    });
+    await owner.post("/api/admin/sessions").send({ name: "Recorded", recordingRequested: true })
+      .expect(503).expect(({ body }) => expect(body.code).toBe("recording_unavailable"));
+    await owner.post("/api/admin/sessions").send({ name: "Unrecorded", recordingRequested: false }).expect(201);
+  });
 
   it("requires owner authentication and creates private role links", async () => {
     const { app, store } = testApp(); stores.push(store);
@@ -68,6 +151,68 @@ describe("Discus API", () => {
     expect(created.body.djUrl).not.toBe(created.body.listenerUrl);
     expect(store.list()).toHaveLength(1);
     expect(created.body.session.recording).toEqual({ requested: false, status: "off", durationSeconds: null, partCount: 0 });
+  });
+
+  it("keeps DJ and listener credentials isolated in the same browser", async () => {
+    const { app, store } = testApp(); stores.push(store);
+    const owner = request.agent(app);
+    await owner.post("/api/admin/login").send({ password: "owner-test-password" }).expect(200);
+    const created = await owner.post("/api/admin/sessions").send({ name: "Shared browser" }).expect(201);
+    const browser = request.agent(app);
+
+    const djExchange = await browser.post("/api/invite/exchange")
+      .send({ token: created.body.djUrl.split("/").at(-1) })
+      .expect(200);
+    expect(String(djExchange.headers["set-cookie"])).toContain("djrelay_dj_invite=");
+    const listenerExchange = await browser.post("/api/invite/exchange")
+      .send({ token: created.body.listenerUrl.split("/").at(-1) })
+      .expect(200);
+    expect(String(listenerExchange.headers["set-cookie"])).toContain("djrelay_listener_invite=");
+
+    await browser.get("/api/session").set("X-Discus-Role", "dj").expect(200)
+      .expect(({ body }) => expect(body.role).toBe("dj"));
+    await browser.get("/api/session").set("X-Discus-Role", "listener").expect(200)
+      .expect(({ body }) => expect(body.role).toBe("listener"));
+  });
+
+  it("keeps a stale DJ heartbeat live while MediaMTX still has its publisher", async () => {
+    let activePath = "";
+    const mediaMtx: MediaMtxControl = {
+      listPaths: async () => activePath ? [{
+        name: activePath, tracks: ["Opus"], bytesReceived: 1, sourceType: "webrtcSession", sourceId: "publisher-1",
+      }] : [],
+      kickWebRtcSession: async () => undefined,
+    };
+    const { app, store, config } = testApp(undefined, undefined, mediaMtx); stores.push(store);
+    const owner = request.agent(app);
+    await owner.post("/api/admin/login").send({ password: "owner-test-password" }).expect(200);
+    const created = await owner.post("/api/admin/sessions").send({ name: "Publisher truth" }).expect(201);
+    activePath = created.body.session.mediaPath;
+    store.setState(created.body.session.id, "live");
+    store.touchDj(created.body.session.id, new Date(Date.now() - config.djDisconnectGraceMs - 1));
+
+    await owner.get("/api/admin/sessions").expect(200);
+    expect(store.get(created.body.session.id)?.state).toBe("live");
+
+    activePath = "";
+    await owner.get("/api/admin/sessions").expect(200);
+    expect(store.get(created.body.session.id)).toMatchObject({ state: "ended", endedReason: "timeout" });
+  });
+
+  it("fails safe when publisher state cannot be checked", async () => {
+    const mediaMtx: MediaMtxControl = {
+      listPaths: async () => { throw new Error("MediaMTX unavailable"); },
+      kickWebRtcSession: async () => undefined,
+    };
+    const { app, store, config } = testApp(undefined, undefined, mediaMtx); stores.push(store);
+    const owner = request.agent(app);
+    await owner.post("/api/admin/login").send({ password: "owner-test-password" }).expect(200);
+    const created = await owner.post("/api/admin/sessions").send({ name: "Unknown publisher state" }).expect(201);
+    store.setState(created.body.session.id, "live");
+    store.touchDj(created.body.session.id, new Date(Date.now() - config.djDisconnectGraceMs - 1));
+
+    await owner.get("/api/admin/sessions").expect(200);
+    expect(store.get(created.body.session.id)?.state).toBe("live");
   });
 
   it("records opted-in sessions and serves replay through the original listener link", async () => {

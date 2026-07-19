@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 const ownerPassword = process.env.E2E_OWNER_PASSWORD ?? "e2e-owner-password";
-const mediaAuthSecret = process.env.E2E_MEDIA_AUTH_SECRET ?? "e2e-media-auth-secret";
+const mediaAuthSecret = process.env.E2E_MEDIA_AUTH_SECRET ?? "e2e-media-auth-secret-with-padding";
 
 test("public homepage renders the current Discus marketing shell", async ({ page }) => {
   await page.setViewportSize({ width: 758, height: 942 });
@@ -19,10 +19,11 @@ test("owner creates a session and DJ reaches the ready screen", async ({ page, c
   const sessionName = `Saturday Night Relay ${Date.now()}`;
   await page.goto("/admin");
   await expect(page).toHaveTitle("Discus");
-  await expect(page.getByRole("link", { name: "Producer console" })).toHaveAttribute("href", "/admin");
+  await expect(page.getByRole("link", { name: "Producer console" })).toHaveCount(0);
   await page.getByLabel("Producer password").fill(ownerPassword);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("heading", { name: "Sessions" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
   const backgroundLayer = await page.locator(".app-shell").evaluate((element) => {
     const style = getComputedStyle(element, "::before");
     return { position: style.position, size: style.backgroundSize };
@@ -37,10 +38,10 @@ test("owner creates a session and DJ reaches the ready screen", async ({ page, c
   const listenerUrl = await page.locator(".copy-row").filter({ hasText: "Listener invite" }).locator("code").textContent();
   expect(djUrl).toBeTruthy();
   expect(listenerUrl).toBeTruthy();
-  const djInviteCopyButton = page.locator(".copy-row").filter({ hasText: "DJ invite" }).getByRole("button", { name: "Copy" });
+  const djInviteCopyButton = page.locator(".copy-row").filter({ hasText: "DJ invite" }).getByRole("button", { name: "Copy DJ link" });
   await expect(djInviteCopyButton.locator(".t-icon-swap")).toHaveAttribute("data-state", "a");
   await djInviteCopyButton.click();
-  const copiedDjInviteButton = page.locator(".copy-row").filter({ hasText: "DJ invite" }).getByRole("button", { name: "Link copied" });
+  const copiedDjInviteButton = page.locator(".copy-row").filter({ hasText: "DJ invite" }).getByRole("button", { name: "DJ link copied" });
   await expect(copiedDjInviteButton).toBeVisible();
   await expect(copiedDjInviteButton.locator(".t-icon-swap")).toHaveAttribute("data-state", "b");
 
@@ -49,25 +50,25 @@ test("owner creates a session and DJ reaches the ready screen", async ({ page, c
   const listener = await listenerPagePromise;
   await expect(listener).toHaveURL(/\/listen$/);
   await expect(listener.getByRole("heading", { name: sessionName })).toBeVisible();
-  await expect(listener.getByRole("link", { name: "Producer console" })).toHaveAttribute("href", "/admin");
+  await expect(listener.getByRole("link", { name: "Producer console" })).toHaveCount(0);
   await expect(listener.getByText("Waiting for DJ", { exact: true })).toBeVisible();
   await expect(listener.locator(".waiting-activity > span")).toHaveCount(3);
   await expect(listener.getByText("Share session", { exact: true })).toBeVisible();
   await expect(listener.getByRole("link", { name: /\/s\// })).toHaveAttribute("href", /\/s\//);
-  await expect(listener.getByRole("button", { name: "Copy link" })).toBeVisible();
-  const listenerShareButton = listener.getByRole("button", { name: "Copy link" });
+  await expect(listener.getByRole("button", { name: "Copy session link" })).toBeVisible();
+  const listenerShareButton = listener.getByRole("button", { name: "Copy session link" });
   await expect(listenerShareButton.locator(".t-icon-swap")).toHaveAttribute("data-state", "a");
   await listenerShareButton.click();
-  await expect(listener.getByRole("button", { name: "Link copied" })).toBeVisible();
-  await expect(listener.getByRole("button", { name: "Link copied" }).locator(".t-icon-swap")).toHaveAttribute("data-state", "b");
+  await expect(listener.getByRole("button", { name: "Session link copied" })).toBeVisible();
+  await expect(listener.getByRole("button", { name: "Session link copied" }).locator(".t-icon-swap")).toHaveAttribute("data-state", "b");
   await listener.setViewportSize({ width: 390, height: 844 });
   expect(await listener.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
-  await listener.screenshot({ path: "/tmp/dj-relay-listener-share.png", fullPage: true });
+  await listener.screenshot({ path: "output/playwright/dj-relay-listener-share.png", fullPage: true });
   await listener.close();
 
   const dj = await context.newPage();
   await dj.goto(djUrl!);
-  await expect(dj.getByRole("link", { name: "Producer console" })).toHaveAttribute("href", "/admin");
+  await expect(dj.getByRole("link", { name: "Producer console" })).toHaveCount(0);
   await expect(dj.getByRole("heading", { name: "Choose your audio" })).toBeVisible();
   await expect(dj.getByRole("heading", { name: "First time? Start here." })).toBeVisible();
   const routingHelp = dj.getByRole("button", { name: "Playing music only from this Mac?" });
@@ -109,23 +110,34 @@ test("owner creates a session and DJ reaches the ready screen", async ({ page, c
   await expect(dj.getByRole("button", { name: "Start broadcast" })).toBeVisible();
   const hasHorizontalOverflow = await dj.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
   expect(hasHorizontalOverflow).toBe(false);
-  await dj.screenshot({ path: "/tmp/dj-relay-mobile.png", fullPage: true });
+  await dj.screenshot({ path: "output/playwright/dj-relay-mobile.png", fullPage: true });
 
   await dj.getByRole("button", { name: "Start broadcast" }).click();
   await expect(dj.locator(".broadcast-stage")).toHaveAttribute("data-page", "2");
   await expect(dj.getByRole("heading", { name: "You’re live" })).toBeVisible();
   await expect(dj.getByText("Audience link", { exact: true })).toBeVisible();
   await expect(dj.getByRole("link", { name: /\/s\// })).toHaveAttribute("href", /\/s\//);
-  await dj.getByRole("button", { name: "Copy link" }).click();
-  await expect(dj.getByRole("button", { name: "Link copied" })).toBeVisible();
+  await dj.getByRole("button", { name: "Copy audience link" }).click();
+  await expect(dj.getByRole("button", { name: "Audience link copied" })).toBeVisible();
   expect(await dj.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
-  await dj.screenshot({ path: "/tmp/dj-relay-broadcast-audience-link.png", fullPage: true });
+  await dj.screenshot({ path: "output/playwright/dj-relay-broadcast-audience-link.png", fullPage: true });
   await dj.setViewportSize({ width: 1600, height: 1100 });
   expect(await dj.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
-  await dj.screenshot({ path: "/tmp/dj-relay-broadcast-audience-link-desktop.png", fullPage: true });
+  await dj.screenshot({ path: "output/playwright/dj-relay-broadcast-audience-link-desktop.png", fullPage: true });
   await expect.poll(() => dj.locator(".broadcast-live-page").evaluate((page) => getComputedStyle(page).transitionDuration)).toContain("0.2s");
   await dj.reload();
   await expect(dj.getByRole("heading", { name: "Choose your audio" })).toBeVisible();
+  const setDjState = async (state: "live" | "interrupted" | "ended") => {
+    const result = await dj.evaluate(async (nextState) => {
+      const response = await fetch("/api/session/state", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Discus-Role": "dj" },
+        body: JSON.stringify({ state: nextState }),
+      });
+      return { ok: response.ok, status: response.status, body: await response.text() };
+    }, state);
+    if (!result.ok) throw new Error(`Could not set DJ state to ${state} (${result.status}): ${result.body}`);
+  };
 
   const observerContext = await browser.newContext();
   const observer = await observerContext.newPage();
@@ -133,34 +145,27 @@ test("owner creates a session and DJ reaches the ready screen", async ({ page, c
   await expect(observer.getByRole("heading", { name: sessionName })).toBeVisible();
 
   const row = page.locator(".session-row").filter({ hasText: sessionName });
-  await dj.evaluate(() => fetch("/api/session/state", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ state: "live" }),
-  }));
+  await setDjState("live");
   await expect(row).toContainText("live", { timeout: 6_000 });
   await expect(observer.getByRole("button", { name: "Listen live" })).toBeVisible({ timeout: 6_000 });
   await observer.getByRole("button", { name: "Listen live" }).click();
   await expect(observer.getByText("Trying to reconnect")).toBeVisible({ timeout: 10_000 });
   await expect(observer.getByText("no stream is available", { exact: false })).toHaveCount(0);
-  await dj.evaluate(() => fetch("/api/session/state", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ state: "interrupted" }),
-  }));
+  await setDjState("interrupted");
   await expect(observer.getByText("DJ disconnected", { exact: true })).toBeVisible({ timeout: 6_000 });
   await expect(observer.getByText("Session closes in", { exact: false })).toBeVisible();
-  await observer.screenshot({ path: "/tmp/dj-relay-disconnected.png", fullPage: true });
-  await dj.evaluate(() => fetch("/api/session/state", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ state: "ended" }),
-  }));
+  await observer.screenshot({ path: "output/playwright/dj-relay-disconnected.png", fullPage: true });
+  await setDjState("ended");
   await expect(row).toContainText("concluded", { timeout: 6_000 });
   await expect(row).not.toContainText("expires");
   await expect(observer.getByRole("heading", { name: "Session concluded" })).toBeVisible({ timeout: 6_000 });
   await expect(observer.getByText("This session has concluded.")).toBeVisible();
+  await dj.close();
   await observerContext.close();
+
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(page.getByLabel("Producer password")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Sessions" })).toHaveCount(0);
 });
 
 test("producer opts into recording and the original listener link becomes a replay", async ({ page, context }) => {
@@ -184,8 +189,8 @@ test("producer opts into recording and the original listener link becomes a repl
   await dj.getByRole("button", { name: "Allow audio access" }).click();
   await expect(dj.getByRole("button", { name: "Start broadcast and recording" })).toBeVisible();
   await dj.evaluate(async () => {
-    await fetch("/api/session/state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ state: "live" }) });
-    await fetch("/api/session/state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ state: "ended" }) });
+    await fetch("/api/session/state", { method: "POST", headers: { "Content-Type": "application/json", "X-Discus-Role": "dj" }, body: JSON.stringify({ state: "live" }) });
+    await fetch("/api/session/state", { method: "POST", headers: { "Content-Type": "application/json", "X-Discus-Role": "dj" }, body: JSON.stringify({ state: "ended" }) });
   });
 
   const replay = await context.newPage();
@@ -200,7 +205,7 @@ test("producer opts into recording and the original listener link becomes a repl
     }),
   }));
   await replay.goto(listenerUrl!);
-  await expect(replay.getByRole("link", { name: "Producer console" })).toHaveAttribute("href", "/admin");
+  await expect(replay.getByRole("link", { name: "Producer console" })).toHaveCount(0);
   await expect(replay.getByText("This session has concluded. Recorded playback is ready.")).toBeVisible();
   await expect(replay.getByLabel(`${sessionName} recording part 1`)).toHaveAttribute("src", "/api/session/recording/parts/0");
   await expect(replay.getByText("Part 1 of 2 · reconnects continue automatically")).toBeVisible();
@@ -217,10 +222,10 @@ test("producer opts into recording and the original listener link becomes a repl
   await expect(shareReplayButton.locator(".t-icon-swap")).toHaveAttribute("data-state", "a");
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await shareReplayButton.click();
-  const copiedReplayButton = replayActions.getByRole("button", { name: "Link copied" });
+  const copiedReplayButton = replayActions.getByRole("button", { name: "Session link copied" });
   await expect(copiedReplayButton).toBeVisible();
   await expect(copiedReplayButton.locator(".t-icon-swap")).toHaveAttribute("data-state", "b");
-  await expect(replay.getByText("Link copied", { exact: true })).toBeVisible();
+  await expect(replayActions.getByRole("status")).toHaveText("Session link copied");
   const sharedReplayUrl = await replay.evaluate(() => navigator.clipboard.readText());
   expect(sharedReplayUrl).toMatch(/\/s\/[A-Za-z0-9_.-]+$/);
   const sharedReplay = await context.newPage();
@@ -229,10 +234,10 @@ test("producer opts into recording and the original listener link becomes a repl
   await expect(sharedReplay.getByRole("button", { name: "Copy session link" })).toBeVisible();
   await sharedReplay.close();
   await replay.setViewportSize({ width: 1440, height: 900 });
-  await replay.screenshot({ path: "/tmp/dj-relay-concluded-session-mp3.png", fullPage: true });
+  await replay.screenshot({ path: "output/playwright/dj-relay-concluded-session-mp3.png", fullPage: true });
   await replay.setViewportSize({ width: 390, height: 844 });
   expect(await replay.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
-  await replay.screenshot({ path: "/tmp/dj-relay-concluded-session-share-mobile.png", fullPage: true });
+  await replay.screenshot({ path: "output/playwright/dj-relay-concluded-session-share-mobile.png", fullPage: true });
 
   const archived = await page.evaluate(async (name) => {
     const response = await fetch("/api/admin/sessions?historyLimit=20");
@@ -273,7 +278,7 @@ test("producer opts into recording and the original listener link becomes a repl
   expect((await deleteSessionButton.textContent())?.trim()).toBe("");
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
-  await page.screenshot({ path: "/tmp/dj-relay-session-delete.png", fullPage: true });
+  await page.screenshot({ path: "output/playwright/dj-relay-session-delete.png", fullPage: true });
   page.once("dialog", (dialog) => dialog.accept());
   await deleteSessionButton.click();
   await expect(archiveRow).toHaveCount(0);
@@ -328,6 +333,7 @@ test("inactive session history loads in batches near the viewport", async ({ pag
     startedAt: "2026-07-13T17:05:00.000Z",
     endedAt: "2026-07-13T18:00:00.000Z",
     endedReason: "dj",
+    terminationCode: null,
     disconnectDeadline: null,
     listenerCount: 0,
     uniqueListenerCount: 0,
@@ -364,7 +370,7 @@ test("inactive session history loads in batches near the viewport", async ({ pag
 
 test("invalid invite fails clearly", async ({ page }) => {
   await page.goto("/s/not-a-real-invite");
-  await expect(page.getByRole("link", { name: "Producer console" })).toHaveAttribute("href", "/admin");
+  await expect(page.getByRole("link", { name: "Producer console" })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Invite unavailable" })).toBeVisible();
   await expect(page.getByText("This invite is invalid or no longer available")).toBeVisible();
 });

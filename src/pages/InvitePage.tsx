@@ -14,7 +14,7 @@ export function InvitePage({ token }: { token: string }) {
     }).catch((caught) => setError(caught instanceof Error ? caught.message : "Unable to open this invite"));
   }, [token]);
   return (
-    <AppShell footer="">
+    <AppShell footer="" showProducerLink={false}>
       <div className="message-view">
         <h1>{error ? "Invite unavailable" : "Opening session"}</h1>
         <p className="intro-copy">{error || "Checking your private invite…"}</p>

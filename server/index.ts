@@ -4,11 +4,19 @@ import express from "express";
 import { createApp } from "./app.js";
 import { assertProductionConfig, loadConfig } from "./config.js";
 import { SessionStore } from "./db.js";
+import { MediaMtxControlClient, RecordingWatchdog } from "./recordingWatchdog.js";
 
 const config = loadConfig();
 assertProductionConfig(config);
 const store = new SessionStore(config.databasePath);
-const app = createApp({ config, store });
+const mediaMtx = new MediaMtxControlClient(config.mediaMtxApiUrl);
+const recordingGuard = new RecordingWatchdog({
+  config,
+  store,
+  mediaMtx,
+});
+await recordingGuard.initialize();
+const app = createApp({ config, store, recordingGuard, mediaMtx });
 const root = process.cwd();
 
 if (process.env.NODE_ENV === "development") {
@@ -26,10 +34,12 @@ if (process.env.NODE_ENV === "development") {
 }
 
 const server = app.listen(config.port, "0.0.0.0", () => {
+  recordingGuard.start();
   console.log(JSON.stringify({ level: "info", message: "Discus listening", port: config.port }));
 });
 
 function shutdown(): void {
+  recordingGuard.stop();
   server.close(() => {
     store.close();
     process.exit(0);

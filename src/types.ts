@@ -19,11 +19,25 @@ export type RelaySession = {
   startedAt: string | null;
   endedAt: string | null;
   endedReason: "dj" | "owner" | "timeout" | null;
+  terminationCode: "recording_media_policy" | "recording_session_limit" | "recording_archive_limit" | null;
   disconnectDeadline: string | null;
   listenerCount: number;
   uniqueListenerCount: number;
   listenerHistoryAvailable: boolean;
   recording: RecordingSummary;
+};
+
+export type AdminStatus = {
+  mediaMtx: boolean;
+  recording: {
+    state: "ok" | "warning" | "blocked" | "unavailable";
+    usedBytes: number | null;
+    maxBytes: number;
+    freeBytes: number | null;
+    sessionMaxBytes: number;
+    lastSuccessfulScanAt: string | null;
+  };
+  transcode: { active: number; queued: number; maxActive: number; maxQueued: number };
 };
 
 export type SessionResponse = {
