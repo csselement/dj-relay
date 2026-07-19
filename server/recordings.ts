@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { createReadStream } from "node:fs";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
@@ -103,8 +103,15 @@ type RecordingApiResponse = {
   segments?: Array<{ start?: unknown }>;
 };
 
+type Mp3Validation = {
+  validatedAt: string;
+  actualDurationSeconds: number;
+  sha256: string;
+  fullDecode: true;
+};
+
 type ArchiveMetadata = {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   sessionId: string;
   sessionName: string;
   mediaPath: string;
@@ -122,13 +129,14 @@ type ArchiveMetadata = {
   sourceStarts: string[];
   finalizedAt: string;
   bytes: number;
+  sourceRetention?: "preserved_until_producer_deletion";
+  validation?: Mp3Validation;
 };
 
 type ResolvedArchive = {
   audioPath: string;
   metadataPath: string;
-  metadata: Pick<ArchiveMetadata, "filename" | "startedAt" | "durationSeconds"> &
-    Partial<Pick<ArchiveMetadata, "sourceStarts">>;
+  metadata: Pick<ArchiveMetadata, "filename" | "startedAt" | "durationSeconds"> & Partial<ArchiveMetadata>;
   legacy: boolean;
 };
 
@@ -250,14 +258,10 @@ export class MediaMtxRecordingBackend implements RecordingBackend {
         await this.migrateLegacyArchive(session, ready);
         return false;
       }
-      const sourceStarts = await this.listSourceStarts(path);
-      if (sourceStarts.length === 0) return false;
-      if (!ready.metadata.sourceStarts || sourceStarts.length !== ready.metadata.sourceStarts.length ||
-        sourceStarts.some((start, index) => start !== ready.metadata.sourceStarts?.[index])) {
-        throw new Error("Finalized MP3 does not account for every remaining recording source segment");
+      if (!hasDurableValidation(ready.metadata)) {
+        const validation = await validateMp3(ready.audioPath, ready.metadata.durationSeconds);
+        await this.upgradeArchiveValidation(ready, validation);
       }
-      await validateMp3(ready.audioPath, ready.metadata.durationSeconds);
-      await this.deleteSources(path, sourceStarts);
       return false;
     }
 
@@ -285,10 +289,10 @@ export class MediaMtxRecordingBackend implements RecordingBackend {
         "-map", "0:a:0", "-vn", "-c:a", "libmp3lame", "-b:a", "192k", "-ac", "2", "-ar", "48000",
         outputPath,
       ]);
-      await validateMp3(outputPath, durationSeconds);
-      await this.publishArchive(session, outputPath, durationSeconds, sourceStarts, id);
+      const validation = await validateMp3(outputPath, durationSeconds);
+      await this.publishArchive(session, outputPath, durationSeconds, sourceStarts, validation, id);
       const published = await this.resolveArchive(path);
-      if (!published || published.metadata.durationSeconds !== durationSeconds) {
+      if (!published || published.metadata.durationSeconds !== durationSeconds || !hasDurableValidation(published.metadata)) {
         throw new Error("Finalized MP3 archive could not be verified after publishing");
       }
       const currentSourceStarts = await this.listSourceStarts(path);
@@ -296,7 +300,6 @@ export class MediaMtxRecordingBackend implements RecordingBackend {
         currentSourceStarts.some((start, index) => start !== sourceStarts[index])) {
         throw new Error("Recording source segments changed during MP3 finalization");
       }
-      await this.deleteSources(path, currentSourceStarts);
       return true;
     } finally {
       await Promise.all([
@@ -313,11 +316,12 @@ export class MediaMtxRecordingBackend implements RecordingBackend {
       if (typeof pointer.basename !== "string" || !/^[a-zA-Z0-9_-]+$/.test(pointer.basename)) throw new Error("Archive index was invalid");
       const metadataPath = join(this.playbackPath, `${pointer.basename}.json`);
       const audioPath = join(this.playbackPath, `${pointer.basename}.mp3`);
-      const [raw] = await Promise.all([readFile(metadataPath, "utf8"), stat(audioPath)]);
+      const [raw, audio] = await Promise.all([readFile(metadataPath, "utf8"), stat(audioPath)]);
       const metadata = JSON.parse(raw) as Partial<ArchiveMetadata>;
       if (metadata.mediaPath !== path || typeof metadata.filename !== "string" || typeof metadata.startedAt !== "string" ||
         typeof metadata.durationSeconds !== "number" || metadata.durationSeconds <= 0 || !Array.isArray(metadata.sourceStarts) ||
-        metadata.sourceStarts.some((start) => typeof start !== "string")) throw new Error("Archive metadata was invalid");
+        metadata.sourceStarts.some((start) => typeof start !== "string") ||
+        (typeof metadata.bytes === "number" && metadata.bytes !== audio.size)) throw new Error("Archive metadata was invalid");
       return { audioPath, metadataPath, metadata: metadata as ArchiveMetadata, legacy: false };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
@@ -348,6 +352,7 @@ export class MediaMtxRecordingBackend implements RecordingBackend {
     sourcePath: string,
     durationSeconds: number,
     sourceStarts: string[],
+    validation: Mp3Validation,
     id: string,
     sourcePartCount: number | null = sourceStarts.length || null,
   ): Promise<void> {
@@ -367,7 +372,7 @@ export class MediaMtxRecordingBackend implements RecordingBackend {
     await rename(sourcePath, audioPath);
     const audio = await stat(audioPath);
     const metadata: ArchiveMetadata = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       sessionId: session.id,
       sessionName: session.name,
       mediaPath: session.mediaPath,
@@ -385,6 +390,8 @@ export class MediaMtxRecordingBackend implements RecordingBackend {
       sourceStarts,
       finalizedAt: new Date().toISOString(),
       bytes: audio.size,
+      sourceRetention: "preserved_until_producer_deletion",
+      validation,
     };
     const metadataTemp = `${metadataPath}.${id}`;
     const pointerPath = join(this.playbackPath, ".index", `${session.mediaPath}.json`);
@@ -396,10 +403,31 @@ export class MediaMtxRecordingBackend implements RecordingBackend {
   }
 
   private async migrateLegacyArchive(session: RelaySession, archive: ResolvedArchive): Promise<void> {
-    await validateMp3(archive.audioPath, archive.metadata.durationSeconds);
+    const validation = await validateMp3(archive.audioPath, archive.metadata.durationSeconds);
     const id = randomUUID();
-    await this.publishArchive(session, archive.audioPath, archive.metadata.durationSeconds, [archive.metadata.startedAt], id, null);
+    await this.publishArchive(
+      session,
+      archive.audioPath,
+      archive.metadata.durationSeconds,
+      [archive.metadata.startedAt],
+      validation,
+      id,
+      null,
+    );
     await rm(archive.metadataPath, { force: true });
+  }
+
+  private async upgradeArchiveValidation(archive: ResolvedArchive, validation: Mp3Validation): Promise<void> {
+    const metadata = JSON.parse(await readFile(archive.metadataPath, "utf8")) as ArchiveMetadata;
+    const id = randomUUID();
+    const temporaryPath = `${archive.metadataPath}.${id}`;
+    await writeFile(temporaryPath, `${JSON.stringify({
+      ...metadata,
+      schemaVersion: 2,
+      sourceRetention: "preserved_until_producer_deletion",
+      validation,
+    }, null, 2)}\n`);
+    await rename(temporaryPath, archive.metadataPath);
   }
 
   private async listSourceStarts(path: string): Promise<string[]> {
@@ -463,7 +491,22 @@ async function runProcess(command: string, args: string[]): Promise<string> {
   return stdout;
 }
 
-async function validateMp3(path: string, expectedDuration: number): Promise<void> {
+function hasDurableValidation(metadata: ResolvedArchive["metadata"]): boolean {
+  const validation = metadata.validation;
+  if (metadata.schemaVersion !== 2 || metadata.sourceRetention !== "preserved_until_producer_deletion" ||
+    !validation || validation.fullDecode !== true || !/^[a-f0-9]{64}$/.test(validation.sha256) ||
+    !Number.isFinite(validation.actualDurationSeconds) || Number.isNaN(Date.parse(validation.validatedAt))) return false;
+  const tolerance = Math.max(2, metadata.durationSeconds * 0.01);
+  return Math.abs(validation.actualDurationSeconds - metadata.durationSeconds) <= tolerance;
+}
+
+async function sha256File(path: string): Promise<string> {
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(path)) hash.update(chunk);
+  return hash.digest("hex");
+}
+
+async function validateMp3(path: string, expectedDuration: number): Promise<Mp3Validation> {
   const raw = await runProcess("ffprobe", [
     "-v", "error", "-select_streams", "a:0",
     "-show_entries", "stream=codec_name,channels,sample_rate:format=duration",
@@ -484,6 +527,12 @@ async function validateMp3(path: string, expectedDuration: number): Promise<void
     "-hide_banner", "-loglevel", "error", "-i", path,
     "-map", "0:a:0", "-f", "null", "-",
   ]);
+  return {
+    validatedAt: new Date().toISOString(),
+    actualDurationSeconds: duration,
+    sha256: await sha256File(path),
+    fullDecode: true,
+  };
 }
 
 export class RecordingFinalizer {

@@ -52,6 +52,16 @@ describe("RecordingWatchdog", () => {
     expect(fixture.watchdog.getStatus().state).toBe("warning");
   });
 
+  it("counts retained originals and finalized MP3s together before admitting new recordings", async () => {
+    const fixture = setup();
+    fixture.directorySize.mockImplementation(async (path: string) => path === "/recordings" ? 600 : 500);
+    await fixture.watchdog.initialize();
+    expect(fixture.directorySize).toHaveBeenCalledWith("/recordings");
+    expect(fixture.directorySize).toHaveBeenCalledWith("/playback");
+    expect(fixture.watchdog.getStatus()).toMatchObject({ state: "blocked", usedBytes: 1_100 });
+    expect(fixture.watchdog.canCreateRecording()).toBe(false);
+  });
+
   it("ends active recording sessions at session and archive limits with durable codes", async () => {
     const fixture = setup();
     await fixture.watchdog.initialize();

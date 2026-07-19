@@ -77,7 +77,7 @@ describe("MediaMtxRecordingBackend", () => {
     }
   });
 
-  it("finalizes an Opus recording once, validates the MP3, and serves the MP3 with ranges", async () => {
+  it("finalizes every source segment, validates the MP3, and permanently retains the originals", async () => {
     const root = await mkdtemp(join(tmpdir(), "discus-finalize-"));
     const recordingsPath = join(root, "recordings");
     const playbackPath = join(root, "playback");
@@ -143,11 +143,21 @@ describe("MediaMtxRecordingBackend", () => {
       expect(response.status).toBe(206);
       expect(response.headers.get("content-type")).toBe("audio/mpeg");
       expect(Buffer.from(await response.arrayBuffer()).toString("ascii")).toBe("ID3");
-      expect(deletedStarts).toEqual(sourceStarts);
+      expect(deletedStarts).toEqual([]);
+      const restartedBackend = new MediaMtxRecordingBackend(
+        "http://playback:9996",
+        "http://media:9997",
+        recordingsPath,
+        playbackPath,
+      );
+      await expect(restartedBackend.finalize(session)).resolves.toBe(false);
+      expect(deletedStarts).toEqual([]);
+      await expect(stat(join(sessionPath, "2026-07-17_20-00-00-123400.mp4"))).resolves.toMatchObject({ size: expect.any(Number) });
+      await expect(stat(join(sessionPath, "2026-07-17_20-00-00-373400.mp4"))).resolves.toMatchObject({ size: expect.any(Number) });
       await expect(stat(join(playbackPath, "202607171300_recorded-session.mp3"))).resolves.toMatchObject({ size: expect.any(Number) });
       const metadata = JSON.parse(await readFile(join(playbackPath, "202607171300_recorded-session.json"), "utf8"));
       expect(metadata).toMatchObject({
-        schemaVersion: 1,
+        schemaVersion: 2,
         sessionId: "session-1",
         sessionName: "Recorded Session!",
         mediaPath: "recording-session-test",
@@ -163,6 +173,13 @@ describe("MediaMtxRecordingBackend", () => {
         sourcePartCount: 2,
         sourceStarts,
         bytes: expect.any(Number),
+        sourceRetention: "preserved_until_producer_deletion",
+        validation: {
+          validatedAt: expect.any(String),
+          actualDurationSeconds: expect.any(Number),
+          sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+          fullDecode: true,
+        },
       });
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -219,6 +236,77 @@ describe("MediaMtxRecordingBackend", () => {
     }
   });
 
+  it("revalidates an existing archive after restart without deleting its retained source", async () => {
+    const root = await mkdtemp(join(tmpdir(), "discus-revalidate-"));
+    const recordingsPath = join(root, "recordings");
+    const playbackPath = join(root, "playback");
+    const sessionPath = join(recordingsPath, endedSession.mediaPath);
+    const indexPath = join(playbackPath, ".index");
+    await Promise.all([
+      mkdir(sessionPath, { recursive: true }),
+      mkdir(indexPath, { recursive: true }),
+    ]);
+    const sourcePath = join(sessionPath, "2026-07-17_19-05-00-000000.mp4");
+    await writeFile(sourcePath, "retained original source");
+    const basename = "202607171205_recorded-session";
+    const audioPath = join(playbackPath, `${basename}.mp3`);
+    const encoded = spawnSync("ffmpeg", [
+      "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo",
+      "-t", "0.25", "-c:a", "libmp3lame", "-b:a", "192k", "-ac", "2", "-ar", "48000", audioPath,
+    ]);
+    if (encoded.status !== 0) throw new Error(encoded.stderr.toString() || "Could not create revalidation fixture");
+    const audio = await stat(audioPath);
+    const metadataPath = join(playbackPath, `${basename}.json`);
+    await Promise.all([
+      writeFile(join(indexPath, `${endedSession.mediaPath}.json`), JSON.stringify({ basename })),
+      writeFile(metadataPath, JSON.stringify({
+        schemaVersion: 1,
+        sessionId: endedSession.id,
+        sessionName: endedSession.name,
+        mediaPath: endedSession.mediaPath,
+        filename: `${basename}.mp3`,
+        archiveTimeZone: "America/Los_Angeles",
+        startedAt: endedSession.startedAt,
+        endedAt: endedSession.endedAt,
+        durationSeconds: 0.25,
+        codec: "mp3",
+        bitrateKbps: 192,
+        sampleRateHz: 48_000,
+        channels: 2,
+        sourceFormat: "fmp4/opus",
+        sourcePartCount: 1,
+        sourceStarts: ["2026-07-17T19:05:00.000Z"],
+        finalizedAt: endedSession.endedAt,
+        bytes: audio.size,
+      })),
+    ]);
+    const fetchMock = vi.fn(async () => { throw new Error("MediaMTX deletion must not run during revalidation"); });
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const backend = new MediaMtxRecordingBackend(
+        "http://playback:9996",
+        "http://media:9997",
+        recordingsPath,
+        playbackPath,
+      );
+      await expect(backend.finalize(endedSession)).resolves.toBe(false);
+      expect(fetchMock).not.toHaveBeenCalled();
+      await expect(stat(sourcePath)).resolves.toMatchObject({ size: expect.any(Number) });
+      const metadata = JSON.parse(await readFile(metadataPath, "utf8"));
+      expect(metadata).toMatchObject({
+        schemaVersion: 2,
+        sourceRetention: "preserved_until_producer_deletion",
+        validation: {
+          sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+          fullDecode: true,
+        },
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("migrates legacy media-path archives to the start-time naming scheme", async () => {
     const root = await mkdtemp(join(tmpdir(), "discus-migrate-"));
     const recordingsPath = join(root, "recordings");
@@ -252,13 +340,21 @@ describe("MediaMtxRecordingBackend", () => {
         filename: "202607171205_recorded-session.mp3",
       }]);
       const metadata = JSON.parse(await readFile(join(playbackPath, "202607171205_recorded-session.json"), "utf8"));
+      expect(metadata).toMatchObject({
+        schemaVersion: 2,
+        sourceRetention: "preserved_until_producer_deletion",
+        validation: {
+          sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+          fullDecode: true,
+        },
+      });
       expect(metadata.sourcePartCount).toBeNull();
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 
-  it("deletes every segment and reports partial failures", async () => {
+  it("deletes source segments only through explicit archive deletion and reports partial failures", async () => {
     const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = new URL(String(input));
       if (init?.method === "DELETE") {
